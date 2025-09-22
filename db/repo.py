@@ -29,28 +29,16 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
     with get_session() as session:
         for item in items:
             try:
-                # Use status_no as primary identifier, fallback to permit_no for legacy data
-                primary_key = item.get('status_no') or item.get('permit_no')
-                if not primary_key:
-                    logger.warning(f"Skipping item without primary key: {item}")
-                    continue
-                
                 # Check if permit already exists
                 existing_permit = session.query(Permit).filter(
-                    Permit.status_no == primary_key
+                    Permit.permit_no == item.get('permit_no')
                 ).first()
-                
-                if not existing_permit and item.get('permit_no'):
-                    # Fallback to legacy permit_no lookup
-                    existing_permit = session.query(Permit).filter(
-                        Permit.permit_no == item.get('permit_no')
-                    ).first()
                 
                 if existing_permit:
                     # Update existing permit
                     updated = False
                     for field, value in item.items():
-                        if field not in ['status_no', 'permit_no'] and hasattr(existing_permit, field):
+                        if field != 'permit_no' and hasattr(existing_permit, field):
                             current_value = getattr(existing_permit, field)
                             if current_value != value:
                                 setattr(existing_permit, field, value)
@@ -58,20 +46,20 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
                     
                     if updated:
                         updated_count += 1
-                        logger.debug(f"Updated permit: {primary_key}")
+                        logger.debug(f"Updated permit: {item.get('permit_no')}")
                 else:
                     # Insert new permit
                     permit = Permit(**item)
                     session.add(permit)
                     inserted_count += 1
-                    logger.debug(f"Inserted new permit: {primary_key}")
+                    logger.debug(f"Inserted new permit: {item.get('permit_no')}")
                     
             except IntegrityError as e:
-                logger.warning(f"Integrity error for permit {primary_key}: {e}")
+                logger.warning(f"Integrity error for permit {item.get('permit_no')}: {e}")
                 session.rollback()
                 continue
             except Exception as e:
-                logger.error(f"Error processing permit {primary_key}: {e}")
+                logger.error(f"Error processing permit {item.get('permit_no')}: {e}")
                 continue
     
     logger.info(f"Permit upsert completed: {inserted_count} inserted, {updated_count} updated")
@@ -95,31 +83,9 @@ def get_recent_permits(limit: int = 50) -> List[Dict[str, Any]]:
         logger.debug(f"Retrieved {len(permits)} recent permits")
         return [permit.to_dict() for permit in permits]
 
-def get_permit_by_status_no(status_no: str) -> Dict[str, Any]:
-    """
-    Get a specific permit by status number.
-    
-    Args:
-        status_no: Status number to search for
-        
-    Returns:
-        Permit dictionary or None if not found
-    """
-    with get_session() as session:
-        permit = session.query(Permit).filter(
-            Permit.status_no == status_no
-        ).first()
-        
-        if permit:
-            logger.debug(f"Found permit: {status_no}")
-            return permit.to_dict()
-        else:
-            logger.debug(f"Permit not found: {status_no}")
-            return None
-
 def get_permit_by_number(permit_no: str) -> Dict[str, Any]:
     """
-    Get a specific permit by legacy permit number.
+    Get a specific permit by permit number.
     
     Args:
         permit_no: Permit number to search for
@@ -140,20 +106,16 @@ def get_permit_by_number(permit_no: str) -> Dict[str, Any]:
             return None
 
 def search_permits(
-    operator_name: str = None,
+    operator: str = None,
     county: str = None,
-    district: str = None,
-    filing_purpose: str = None,
     limit: int = 50
 ) -> List[Dict[str, Any]]:
     """
-    Search permits by various criteria.
+    Search permits by operator and/or county.
     
     Args:
-        operator_name: Filter by operator name (partial match)
+        operator: Filter by operator name (partial match)
         county: Filter by county name (partial match)
-        district: Filter by district (exact match)
-        filing_purpose: Filter by filing purpose (partial match)
         limit: Maximum number of results
         
     Returns:
@@ -164,19 +126,15 @@ def search_permits(
         
         # Build filters
         filters = []
-        if operator_name:
-            filters.append(Permit.operator_name.ilike(f"%{operator_name}%"))
+        if operator:
+            filters.append(Permit.operator.ilike(f"%{operator}%"))
         if county:
             filters.append(Permit.county.ilike(f"%{county}%"))
-        if district:
-            filters.append(Permit.district == district)
-        if filing_purpose:
-            filters.append(Permit.filing_purpose.ilike(f"%{filing_purpose}%"))
         
         if filters:
             query = query.filter(and_(*filters))
         
-        permits = query.order_by(Permit.status_date.desc(), Permit.created_at.desc()).limit(limit).all()
+        permits = query.order_by(Permit.created_at.desc()).limit(limit).all()
         
         logger.debug(f"Search returned {len(permits)} permits")
         return [permit.to_dict() for permit in permits]
