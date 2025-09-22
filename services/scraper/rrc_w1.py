@@ -110,27 +110,28 @@ class RRCW1Client:
         try:
             logger.info("Attempting to initialize Chrome WebDriver...")
             
-            # Try to find Chrome binary path
-            chrome_binary_paths = [
-                "/usr/bin/google-chrome",
-                "/usr/bin/google-chrome-stable", 
+            # Try to find Chromium binary path (prefer Chromium over Chrome)
+            chromium_binary_paths = [
+                "/usr/bin/chromium",
                 "/usr/bin/chromium-browser",
-                "/usr/bin/chromium"
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable"
             ]
             
-            chrome_binary = None
-            for path in chrome_binary_paths:
+            chromium_binary = None
+            for path in chromium_binary_paths:
                 if os.path.exists(path):
-                    chrome_binary = path
-                    logger.info(f"Found Chrome binary at: {chrome_binary}")
+                    chromium_binary = path
+                    logger.info(f"Found Chromium binary at: {chromium_binary}")
                     break
             
-            if chrome_binary:
-                chrome_options.binary_location = chrome_binary
+            if chromium_binary:
+                chrome_options.binary_location = chromium_binary
             
-            # Try to find ChromeDriver path
+            # Try to find ChromiumDriver path
             chromedriver_paths = [
                 "/usr/bin/chromedriver",
+                "/usr/bin/chromium-driver",
                 "/usr/local/bin/chromedriver",
                 "/opt/chromedriver/chromedriver"
             ]
@@ -139,10 +140,10 @@ class RRCW1Client:
             for path in chromedriver_paths:
                 if os.path.exists(path):
                     chromedriver_path = path
-                    logger.info(f"Found ChromeDriver at: {chromedriver_path}")
+                    logger.info(f"Found ChromiumDriver at: {chromedriver_path}")
                     break
             
-            # Initialize WebDriver
+            # Initialize WebDriver with Chromium
             if chromedriver_path:
                 from selenium.webdriver.chrome.service import Service
                 service = Service(chromedriver_path)

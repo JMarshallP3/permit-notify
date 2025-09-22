@@ -1,16 +1,18 @@
 # Use Python 3.11 slim image
 FROM python:3.11-slim
 
-# Install system dependencies for Chrome and Selenium
+# Install system dependencies for Chromium and Selenium
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     unzip \
     curl \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
+    chromium \
+    chromium-driver \
+    xvfb \
+    x11vnc \
+    fluxbox \
+    wmctrl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

@@ -109,6 +109,15 @@ async def w1_search(
         # Fetch results using RRCW1Client
         result = rrc_w1_client.fetch_all(begin, end, pages)
         
+        # Store results in database if we have items
+        if result.get("items"):
+            upsert_result = upsert_permits(result["items"])
+            result["database"] = upsert_result
+            logger.info(f"Stored {upsert_result['inserted']} new permits, updated {upsert_result['updated']} permits")
+        else:
+            result["database"] = {"inserted": 0, "updated": 0}
+            logger.info("No permits found to store in database")
+        
         logger.info(f"W-1 search completed: {result['pages']} pages, {result['count']} items")
         return result
         
