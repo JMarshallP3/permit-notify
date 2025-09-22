@@ -337,37 +337,65 @@ class Scraper:
     
     def _normalize_permit_row(self, row_data: Dict[str, str]) -> Dict[str, Any]:
         """
-        Normalize permit row data into current database schema.
+        Normalize permit row data into RRC W-1 schema.
         
         Args:
             row_data: Raw row data dictionary
             
         Returns:
-            Normalized permit data matching current Railway database
+            Normalized permit data matching RRC W-1 Search Results
         """
         normalized = {
+            # RRC W-1 Search Results fields
+            "status_date": None,
+            "status_no": None,
+            "api_no": None,
+            "operator_name": None,
+            "operator_number": None,
+            "lease_name": None,
+            "well_no": None,
+            "district": None,
+            "county": None,
+            "wellbore_profile": None,
+            "filing_purpose": None,
+            "amend": None,
+            "total_depth": None,
+            "stacked_lateral_parent_well_dp": None,
+            "current_queue": None,
+            # Legacy fields for backward compatibility
             "permit_no": None,
             "operator": None,
-            "county": None,
-            "district": None,
             "well_name": None,
             "lease_no": None,
             "field": None,
-            "submission_date": None,
-            "api_no": None
+            "submission_date": None
         }
         
-        # Map common field variations to our current schema
+        # Map RRC W-1 field variations to our schema
         field_mapping = {
-            'permit_no': ['permit', 'permit no', 'permit number', 'permit_id', 'status #', 'status no', 'status number'],
-            'operator': ['operator', 'company', 'operator name', 'operator name/number'],
+            # Primary RRC fields
+            'status_date': ['status date', 'date', 'submission', 'submission date', 'filed', 'filed date'],
+            'status_no': ['status #', 'status no', 'status number', 'status_id', 'permit', 'permit no', 'permit number', 'permit_id'],
+            'api_no': ['api no.', 'api no', 'api number', 'api_id'],
+            'operator_name': ['operator name/number', 'operator name', 'operator', 'company'],
+            'operator_number': ['operator number', 'operator no'],
+            'lease_name': ['lease name', 'lease'],
+            'well_no': ['well #', 'well no', 'well number', 'well'],
+            'district': ['dist.', 'district', 'district no', 'district number'],
             'county': ['county', 'county name'],
-            'district': ['district', 'district no', 'district number', 'dist.'],
-            'well_name': ['well', 'well name', 'well_name', 'well #', 'well no', 'well number'],
-            'lease_no': ['lease', 'lease no', 'lease number', 'lease_id', 'lease name'],
+            'wellbore_profile': ['wellbore profile', 'profile', 'wellbore'],
+            'filing_purpose': ['filing purpose', 'purpose', 'filing'],
+            'amend': ['amend', 'amended', 'amendment'],
+            'total_depth': ['total depth', 'depth', 'td'],
+            'stacked_lateral_parent_well_dp': ['stacked lateral parent well dp', 'parent well', 'stacked lateral'],
+            'current_queue': ['current queue', 'queue', 'status'],
+            # Legacy field mappings
+            'permit_no': ['permit', 'permit no', 'permit number', 'permit_id'],
+            'operator': ['operator', 'company', 'operator name'],
+            'well_name': ['well', 'well name', 'well_name'],
+            'lease_no': ['lease', 'lease no', 'lease number', 'lease_id'],
             'field': ['field', 'field name'],
-            'submission_date': ['date', 'submission', 'submission date', 'filed', 'filed date', 'status date'],
-            'api_no': ['api', 'api no', 'api number', 'api_id', 'api no.']
+            'submission_date': ['date', 'submission', 'submission date', 'filed', 'filed date']
         }
         
         # Normalize keys and values
@@ -381,11 +409,41 @@ class Scraper:
             # Find matching field
             for schema_field, variations in field_mapping.items():
                 if any(var in key_lower for var in variations):
-                    if schema_field == 'submission_date':
+                    # Handle different field types
+                    if schema_field in ['status_date', 'submission_date']:
                         normalized[schema_field] = self._parse_date(value_clean)
+                    elif schema_field == 'amend':
+                        # Convert Yes/No to boolean
+                        normalized[schema_field] = value_clean.lower() in ['yes', 'y', 'true', '1']
+                    elif schema_field == 'total_depth':
+                        # Convert to numeric
+                        try:
+                            normalized[schema_field] = float(value_clean.replace(',', ''))
+                        except (ValueError, AttributeError):
+                            normalized[schema_field] = None
+                    elif schema_field == 'operator_name':
+                        # Extract operator name and number
+                        normalized[schema_field] = value_clean
+                        # Try to extract operator number from parentheses
+                        import re
+                        match = re.search(r'\((\d+)\)', value_clean)
+                        if match:
+                            normalized['operator_number'] = match.group(1)
                     else:
                         normalized[schema_field] = value_clean
                     break
+        
+        # Set legacy fields for backward compatibility
+        if normalized['status_no'] and not normalized['permit_no']:
+            normalized['permit_no'] = normalized['status_no']
+        if normalized['operator_name'] and not normalized['operator']:
+            normalized['operator'] = normalized['operator_name']
+        if normalized['well_no'] and not normalized['well_name']:
+            normalized['well_name'] = normalized['well_no']
+        if normalized['lease_name'] and not normalized['lease_no']:
+            normalized['lease_no'] = normalized['lease_name']
+        if normalized['status_date'] and not normalized['submission_date']:
+            normalized['submission_date'] = normalized['status_date']
         
         return normalized
     

@@ -29,16 +29,28 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
     with get_session() as session:
         for item in items:
             try:
+                # Use status_no as primary identifier, fallback to permit_no for legacy data
+                primary_key = item.get('status_no') or item.get('permit_no')
+                if not primary_key:
+                    logger.warning(f"Skipping item without primary key: {item}")
+                    continue
+                
                 # Check if permit already exists
                 existing_permit = session.query(Permit).filter(
-                    Permit.permit_no == item.get('permit_no')
+                    Permit.status_no == primary_key
                 ).first()
+                
+                if not existing_permit and item.get('permit_no'):
+                    # Fallback to legacy permit_no lookup
+                    existing_permit = session.query(Permit).filter(
+                        Permit.permit_no == item.get('permit_no')
+                    ).first()
                 
                 if existing_permit:
                     # Update existing permit
                     updated = False
                     for field, value in item.items():
-                        if field != 'permit_no' and hasattr(existing_permit, field):
+                        if field not in ['status_no', 'permit_no'] and hasattr(existing_permit, field):
                             current_value = getattr(existing_permit, field)
                             if current_value != value:
                                 setattr(existing_permit, field, value)
@@ -46,20 +58,20 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
                     
                     if updated:
                         updated_count += 1
-                        logger.debug(f"Updated permit: {item.get('permit_no')}")
+                        logger.debug(f"Updated permit: {primary_key}")
                 else:
                     # Insert new permit
                     permit = Permit(**item)
                     session.add(permit)
                     inserted_count += 1
-                    logger.debug(f"Inserted new permit: {item.get('permit_no')}")
+                    logger.debug(f"Inserted new permit: {primary_key}")
                     
             except IntegrityError as e:
-                logger.warning(f"Integrity error for permit {item.get('permit_no')}: {e}")
+                logger.warning(f"Integrity error for permit {primary_key}: {e}")
                 session.rollback()
                 continue
             except Exception as e:
-                logger.error(f"Error processing permit {item.get('permit_no')}: {e}")
+                logger.error(f"Error processing permit {primary_key}: {e}")
                 continue
     
     logger.info(f"Permit upsert completed: {inserted_count} inserted, {updated_count} updated")
