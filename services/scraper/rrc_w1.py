@@ -59,31 +59,43 @@ class RRCW1Client:
         
         # Initialize Selenium WebDriver
         self.driver = None
-        self._setup_driver()
+        # Don't initialize driver immediately - do it lazily when needed
+        self._driver_initialized = False
         
         logger.info(f"RRCW1Client initialized with base_url={self.base_url}, timeout={self.timeout}, headless={self.headless}")
     
     def _setup_driver(self):
-        """Set up Chrome WebDriver with appropriate options."""
+        """Set up Chrome WebDriver with appropriate options for containerized environment."""
+        if self._driver_initialized:
+            return
+            
         chrome_options = Options()
         
         if self.headless:
             chrome_options.add_argument("--headless")
         
+        # Essential options for containerized environment
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument(f"--user-agent={self.user_agent}")
-        
-        # Additional options for stability
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-plugins")
         chrome_options.add_argument("--disable-images")
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument(f"--user-agent={self.user_agent}")
+        
+        # Additional stability options
+        chrome_options.add_argument("--remote-debugging-port=9222")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+        chrome_options.add_argument("--disable-renderer-backgrounding")
         
         try:
             self.driver = webdriver.Chrome(options=chrome_options)
             self.driver.set_page_load_timeout(self.timeout)
+            self._driver_initialized = True
             logger.info("Chrome WebDriver initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Chrome WebDriver: {e}")
@@ -97,6 +109,11 @@ class RRCW1Client:
             except:
                 pass
     
+    def _ensure_driver(self):
+        """Ensure WebDriver is initialized."""
+        if not self._driver_initialized:
+            self._setup_driver()
+    
     def load_form(self) -> Dict[str, Any]:
         """
         Load the W-1 query form page.
@@ -105,6 +122,9 @@ class RRCW1Client:
             Dictionary with page info and driver state
         """
         logger.info("Loading W-1 query form...")
+        
+        # Ensure driver is initialized
+        self._ensure_driver()
         
         url = f"{self.base_url}/DP/initializePublicQueryAction.do"
         
