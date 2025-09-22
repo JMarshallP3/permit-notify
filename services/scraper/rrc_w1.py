@@ -181,7 +181,12 @@ class RRCW1Client:
     def _ensure_driver(self):
         """Ensure WebDriver is initialized."""
         if not self._driver_initialized and not self._use_requests_fallback:
-            self._setup_driver()
+            try:
+                self._setup_driver()
+            except Exception as e:
+                logger.error(f"Failed to setup driver in _ensure_driver: {e}")
+                self._use_requests_fallback = True
+                self._driver_initialized = False
     
     def _requests_fallback_fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -259,8 +264,18 @@ class RRCW1Client:
         """
         logger.info("Loading W-1 query form...")
         
+        # Check if we should use fallback
+        if self._use_requests_fallback:
+            logger.info("Using requests fallback for load_form")
+            return self._requests_fallback_fetch_all("01/01/2024", "01/31/2024", 1)
+        
         # Ensure driver is initialized
         self._ensure_driver()
+        
+        # Check again after driver setup attempt
+        if self._use_requests_fallback:
+            logger.info("Driver setup failed, using requests fallback for load_form")
+            return self._requests_fallback_fetch_all("01/01/2024", "01/31/2024", 1)
         
         url = f"{self.base_url}/DP/initializePublicQueryAction.do"
         
