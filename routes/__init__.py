@@ -3,13 +3,6 @@ from fastapi import APIRouter
 # Create the main API router
 api_router = APIRouter()
 
-@api_router.get("/permits")
-async def get_permits():
-    """
-    Get all permits
-    """
-    return {"message": "This is a placeholder route for permits", "permits": []}
-
 @api_router.get("/permits/{permit_id}")
 async def get_permit(permit_id: int):
     """

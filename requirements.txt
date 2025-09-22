@@ -61,3 +61,5 @@ winotify==1.1.0
 wsproto==1.2.0
 yarl==1.20.1
 pytest==7.4.3
+psycopg2-binary>=2.9
+alembic>=1.12
