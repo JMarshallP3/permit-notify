@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY routes/ ./routes/
 COPY services/ ./services/
+COPY db/ ./db/
 
 # Expose port
 EXPOSE 8000
