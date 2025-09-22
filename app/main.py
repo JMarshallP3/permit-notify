@@ -45,6 +45,17 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.post("/migrate")
+async def run_migration():
+    """Run database migrations."""
+    try:
+        from tools.migrate import run_migrations
+        result = run_migrations()
+        return {"status": "success", "message": "Migrations completed", "result": result}
+    except Exception as e:
+        logger.error(f"Migration error: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.get("/scrape")
 async def scrape():
     """Scrape permit data and store in database."""

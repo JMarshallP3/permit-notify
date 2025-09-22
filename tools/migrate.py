@@ -20,12 +20,9 @@ def run_migrations():
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
         logger.error("DATABASE_URL environment variable is required")
-        print("Error: DATABASE_URL environment variable is required")
-        print("Example: export DATABASE_URL='postgresql://user:password@localhost:5432/dbname'")
-        sys.exit(1)
+        return {"status": "error", "message": "DATABASE_URL environment variable is required"}
     
     logger.info(f"Running migrations with DATABASE_URL: {database_url[:20]}...")
-    print(f"Running database migrations...")
     
     try:
         # Run alembic upgrade head
@@ -37,24 +34,14 @@ def run_migrations():
         )
         
         logger.info("Migrations completed successfully")
-        print("✅ Database migrations completed successfully")
-        
-        if result.stdout:
-            print("Output:", result.stdout)
+        return {"status": "success", "output": result.stdout}
             
     except subprocess.CalledProcessError as e:
         logger.error(f"Migration failed: {e}")
-        print(f"❌ Migration failed: {e}")
-        if e.stdout:
-            print("Output:", e.stdout)
-        if e.stderr:
-            print("Error:", e.stderr)
-        sys.exit(1)
+        return {"status": "error", "output": e.stderr}
     except FileNotFoundError:
         logger.error("Alembic not found. Make sure it's installed: pip install alembic")
-        print("❌ Alembic not found. Make sure it's installed:")
-        print("   pip install alembic")
-        sys.exit(1)
+        return {"status": "error", "message": "Alembic not found"}
 
 if __name__ == "__main__":
     # Set up basic logging
