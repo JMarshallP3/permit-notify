@@ -24,7 +24,7 @@ class RRCW1Client:
     
     def __init__(
         self,
-        base_url: str = "https://webapps.rrc.state.tx.us/DP",
+        base_url: str = "https://webapps.rrc.state.tx.us",
         timeout: int = 20,
         user_agent: Optional[str] = None,
     ):
@@ -146,7 +146,7 @@ class RRCW1Client:
         
         # GET the initialize page with Referer header
         response = self._get(
-            "/initializePublicQueryAction.do",
+            "/DP/initializePublicQueryAction.do",
             headers={'Referer': self.base_url}
         )
         
