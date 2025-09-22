@@ -3,6 +3,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
+from services.scraper.scraper import Scraper
 
 app = FastAPI(
     title="Permit Notify API",
@@ -15,11 +16,17 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Permit Notify API"}
+    return {"message": "Permit Notify API running"}
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/scrape")
+async def scrape():
+    scraper = Scraper()
+    results = scraper.run()
+    return {"status": "scraper executed", "results": results}
 
 if __name__ == "__main__":
     import uvicorn
