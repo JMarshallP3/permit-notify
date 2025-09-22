@@ -57,12 +57,13 @@ class RRCW1Client:
                 "PermitTrackerBot/1.0 (+mailto:marshall@craatx.com)"
             )
         
-        # Initialize Selenium WebDriver
-        self.driver = None
-        # Don't initialize driver immediately - do it lazily when needed
-        self._driver_initialized = False
-        
-        logger.info(f"RRCW1Client initialized with base_url={self.base_url}, timeout={self.timeout}, headless={self.headless}")
+            # Initialize Selenium WebDriver
+            self.driver = None
+            # Don't initialize driver immediately - do it lazily when needed
+            self._driver_initialized = False
+            self._use_requests_fallback = False
+            
+            logger.info(f"RRCW1Client initialized with base_url={self.base_url}, timeout={self.timeout}, headless={self.headless}")
     
     def _setup_driver(self):
         """Set up Chrome WebDriver with appropriate options for containerized environment."""
@@ -108,7 +109,47 @@ class RRCW1Client:
         
         try:
             logger.info("Attempting to initialize Chrome WebDriver...")
-            self.driver = webdriver.Chrome(options=chrome_options)
+            
+            # Try to find Chrome binary path
+            chrome_binary_paths = [
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable", 
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium"
+            ]
+            
+            chrome_binary = None
+            for path in chrome_binary_paths:
+                if os.path.exists(path):
+                    chrome_binary = path
+                    logger.info(f"Found Chrome binary at: {chrome_binary}")
+                    break
+            
+            if chrome_binary:
+                chrome_options.binary_location = chrome_binary
+            
+            # Try to find ChromeDriver path
+            chromedriver_paths = [
+                "/usr/bin/chromedriver",
+                "/usr/local/bin/chromedriver",
+                "/opt/chromedriver/chromedriver"
+            ]
+            
+            chromedriver_path = None
+            for path in chromedriver_paths:
+                if os.path.exists(path):
+                    chromedriver_path = path
+                    logger.info(f"Found ChromeDriver at: {chromedriver_path}")
+                    break
+            
+            # Initialize WebDriver
+            if chromedriver_path:
+                from selenium.webdriver.chrome.service import Service
+                service = Service(chromedriver_path)
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            else:
+                self.driver = webdriver.Chrome(options=chrome_options)
+            
             self.driver.set_page_load_timeout(self.timeout)
             self._driver_initialized = True
             logger.info("Chrome WebDriver initialized successfully")
@@ -123,7 +164,11 @@ class RRCW1Client:
             logger.error(f"Error type: {type(e).__name__}")
             if hasattr(e, 'msg'):
                 logger.error(f"Error message: {e.msg}")
-            raise
+            
+            # Try fallback to requests-based approach
+            logger.warning("Falling back to requests-based scraping...")
+            self._use_requests_fallback = True
+            self._driver_initialized = False
     
     def __del__(self):
         """Clean up WebDriver on destruction."""
@@ -135,8 +180,75 @@ class RRCW1Client:
     
     def _ensure_driver(self):
         """Ensure WebDriver is initialized."""
-        if not self._driver_initialized:
+        if not self._driver_initialized and not self._use_requests_fallback:
             self._setup_driver()
+    
+    def _requests_fallback_fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Fallback method using requests when Selenium fails.
+        This is a simplified version that returns a basic response.
+        """
+        logger.info("Using requests-based fallback for RRC W-1 search")
+        
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            
+            # Create a simple session
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': self.user_agent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+            })
+            
+            # Try to access the RRC W-1 page
+            url = f"{self.base_url}/DP/initializePublicQueryAction.do"
+            logger.info(f"Fallback: Attempting to access {url}")
+            
+            response = session.get(url, timeout=self.timeout)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for any forms or data
+            forms = soup.find_all('form')
+            tables = soup.find_all('table')
+            
+            return {
+                "source_root": self.base_url,
+                "query_params": {
+                    "begin": begin,
+                    "end": end
+                },
+                "pages": 1,
+                "count": 0,
+                "items": [],
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "warning": "Selenium failed, using requests fallback. Limited functionality available.",
+                "fallback_info": {
+                    "forms_found": len(forms),
+                    "tables_found": len(tables),
+                    "page_title": soup.title.string if soup.title else "Unknown"
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Requests fallback also failed: {e}")
+            return {
+                "source_root": self.base_url,
+                "query_params": {
+                    "begin": begin,
+                    "end": end
+                },
+                "pages": 0,
+                "count": 0,
+                "items": [],
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "warning": f"Both Selenium and requests fallback failed: {str(e)}"
+            }
     
     def load_form(self) -> Dict[str, Any]:
         """
@@ -415,6 +527,11 @@ class RRCW1Client:
         """
         logger.info(f"Fetching all results for {begin_mmddyyyy} to {end_mmddyyyy}")
         
+        # Check if we should use fallback
+        if self._use_requests_fallback:
+            logger.info("Using requests fallback due to Selenium failure")
+            return self._requests_fallback_fetch_all(begin_mmddyyyy, end_mmddyyyy, max_pages)
+        
         try:
             # Submit initial query
             query_result = self.query(begin_mmddyyyy, end_mmddyyyy)
@@ -468,7 +585,13 @@ class RRCW1Client:
             
         except Exception as e:
             logger.error(f"Error in fetch_all: {e}")
-            raise
+            # Try fallback if Selenium fails
+            if not self._use_requests_fallback:
+                logger.warning("Selenium failed, attempting requests fallback...")
+                self._use_requests_fallback = True
+                return self._requests_fallback_fetch_all(begin_mmddyyyy, end_mmddyyyy, max_pages)
+            else:
+                raise
         finally:
             # Clean up driver
             if self.driver:
