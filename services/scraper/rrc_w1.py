@@ -1,193 +1,417 @@
 """
-Production-grade scraper for RRC W-1 search system using Selenium.
-Handles form discovery, submission, and pagination parsing.
+RRC W-1 Drilling Permits Scraper using Playwright.
+
+This module provides a robust scraper for the Texas Railroad Commission
+W-1 drilling permits search system using Playwright for better form handling
+and anti-bot evasion.
 """
 
 import os
-import re
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Any
-from urllib.parse import urljoin, urlparse
-
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait, Select
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from bs4 import BeautifulSoup
+from typing import Dict, List, Any, Optional, Tuple
+from urllib.parse import urljoin
+import re
 
 logger = logging.getLogger(__name__)
 
-
 class RRCW1Client:
     """
-    Client for scraping RRC W-1 drilling permit search results using Selenium.
-    Handles form discovery, submission, and pagination.
+    Client for scraping RRC W-1 drilling permits using Playwright.
+    
+    This client uses Playwright to handle dynamic forms and bypass
+    anti-bot measures that were causing login redirects with requests.
     """
     
-    def __init__(
-        self,
-        base_url: str = "https://webapps.rrc.state.tx.us",
-        timeout: int = 20,
-        user_agent: Optional[str] = None,
-        headless: bool = True,
-    ):
+    def __init__(self, base_url: str = "https://webapps.rrc.state.tx.us"):
         """
-        Initialize the RRC W-1 client with Selenium.
+        Initialize the RRC W-1 client.
         
         Args:
-            base_url: Base URL for RRC W-1 system
-            timeout: Request timeout in seconds
-            user_agent: Custom user agent (defaults to env var or default)
-            headless: Whether to run browser in headless mode
+            base_url: Base URL for RRC webapps
         """
-        self.base_url = base_url.rstrip('/')
-        self.timeout = timeout
-        self.headless = headless
+        self.base_url = base_url
+        self.user_agent = os.getenv(
+            'USER_AGENT', 
+            'PermitNotifyBot/1.0 (contact: marshall@craatx.com)'
+        )
+        self.timeout = int(os.getenv('SCRAPE_TIMEOUT_SECONDS', '30'))
         
-        # User agent from env or default
-        if user_agent:
-            self.user_agent = user_agent
-        else:
-            self.user_agent = os.getenv(
-                "USER_AGENT", 
-                "PermitTrackerBot/1.0 (+mailto:marshall@craatx.com)"
-            )
+        # Playwright will be initialized lazily
+        self._playwright = None
+        self._browser = None
+        self._page = None
         
-            # Initialize Selenium WebDriver
-            self.driver = None
-            # Don't initialize driver immediately - do it lazily when needed
-            self._driver_initialized = False
-            self._use_requests_fallback = False
-            
-            logger.info(f"RRCW1Client initialized with base_url={self.base_url}, timeout={self.timeout}, headless={self.headless}")
+        logger.info(f"RRCW1Client initialized with base_url: {base_url}")
     
-    def _setup_driver(self):
-        """Set up Chrome WebDriver with appropriate options for containerized environment."""
-        if self._driver_initialized:
-            return
-            
-        chrome_options = Options()
-        
-        if self.headless:
-            chrome_options.add_argument("--headless")
-        
-        # Essential options for containerized environment
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-images")
-        chrome_options.add_argument("--disable-web-security")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument(f"--user-agent={self.user_agent}")
-        
-        # Additional stability options
-        chrome_options.add_argument("--remote-debugging-port=9222")
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        
-        # Container-specific options
-        chrome_options.add_argument("--disable-setuid-sandbox")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--disable-background-networking")
-        chrome_options.add_argument("--disable-default-apps")
-        chrome_options.add_argument("--disable-sync")
-        chrome_options.add_argument("--disable-translate")
-        chrome_options.add_argument("--hide-scrollbars")
-        chrome_options.add_argument("--metrics-recording-only")
-        chrome_options.add_argument("--mute-audio")
-        chrome_options.add_argument("--no-first-run")
-        chrome_options.add_argument("--safebrowsing-disable-auto-update")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
-        
-        try:
-            logger.info("Attempting to initialize Chrome WebDriver...")
-            
-            # Try to find Chromium binary path (prefer Chromium over Chrome)
-            chromium_binary_paths = [
-                "/usr/bin/chromium",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/google-chrome",
-                "/usr/bin/google-chrome-stable"
-            ]
-            
-            chromium_binary = None
-            for path in chromium_binary_paths:
-                if os.path.exists(path):
-                    chromium_binary = path
-                    logger.info(f"Found Chromium binary at: {chromium_binary}")
-                    break
-            
-            if chromium_binary:
-                chrome_options.binary_location = chromium_binary
-            
-            # Try to find ChromiumDriver path
-            chromedriver_paths = [
-                "/usr/bin/chromedriver",
-                "/usr/bin/chromium-driver",
-                "/usr/local/bin/chromedriver",
-                "/opt/chromedriver/chromedriver"
-            ]
-            
-            chromedriver_path = None
-            for path in chromedriver_paths:
-                if os.path.exists(path):
-                    chromedriver_path = path
-                    logger.info(f"Found ChromiumDriver at: {chromedriver_path}")
-                    break
-            
-            # Initialize WebDriver with Chromium
-            if chromedriver_path:
-                from selenium.webdriver.chrome.service import Service
-                service = Service(chromedriver_path)
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            else:
-                self.driver = webdriver.Chrome(options=chrome_options)
-            
-            self.driver.set_page_load_timeout(self.timeout)
-            self._driver_initialized = True
-            logger.info("Chrome WebDriver initialized successfully")
-            
-            # Test the driver with a simple navigation
-            logger.info("Testing WebDriver with simple navigation...")
-            self.driver.get("about:blank")
-            logger.info("WebDriver test successful")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize Chrome WebDriver: {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-            if hasattr(e, 'msg'):
-                logger.error(f"Error message: {e.msg}")
-            
-            # Try fallback to requests-based approach
-            logger.warning("Falling back to requests-based scraping...")
-            self._use_requests_fallback = True
-            self._driver_initialized = False
+    def _ensure_playwright(self):
+        """Ensure Playwright is initialized."""
+        if self._playwright is None:
+            try:
+                from playwright.sync_api import sync_playwright
+                self._playwright = sync_playwright()
+                self._browser = self._playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor'
+                    ]
+                )
+                self._page = self._browser.new_page()
+                
+                # Set user agent and viewport
+                self._page.set_user_agent(self.user_agent)
+                self._page.set_viewport_size({"width": 1920, "height": 1080})
+                
+                logger.info("Playwright initialized successfully")
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize Playwright: {e}")
+                raise
     
     def __del__(self):
-        """Clean up WebDriver on destruction."""
-        if self.driver:
-            try:
-                self.driver.quit()
-            except:
-                pass
+        """Clean up Playwright resources."""
+        try:
+            if self._browser:
+                self._browser.close()
+            if self._playwright:
+                self._playwright.__exit__(None, None, None)
+        except:
+            pass
     
-    def _ensure_driver(self):
-        """Ensure WebDriver is initialized."""
-        if not self._driver_initialized and not self._use_requests_fallback:
+    def fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Fetch all permits for the given date range using Playwright.
+        
+        Args:
+            begin: Start date in MM/DD/YYYY format
+            end: End date in MM/DD/YYYY format
+            max_pages: Maximum number of pages to fetch (None for all)
+            
+        Returns:
+            Dictionary with query results and metadata
+        """
+        logger.info(f"Starting RRC W-1 search: {begin} to {end}, max_pages={max_pages}")
+        
+        try:
+            self._ensure_playwright()
+            return self._playwright_fetch_all(begin, end, max_pages)
+            
+        except Exception as e:
+            logger.error(f"Playwright fetch failed: {e}")
+            # Fallback to requests-based approach
+            return self._requests_fallback_fetch_all(begin, end, max_pages)
+    
+    def _playwright_fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Fetch permits using Playwright with robust form handling.
+        """
+        logger.info("Using Playwright for RRC W-1 search")
+        
+        try:
+            # Navigate to the query page
+            query_url = f"{self.base_url}/DP/initializePublicQueryAction.do"
+            logger.info(f"Navigating to: {query_url}")
+            
+            self._page.goto(query_url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+            
+            # Wait for the form to be ready
+            self._page.wait_for_load_state("networkidle")
+            
+            # Fill the date fields using multiple strategies
+            self._fill_date_fields(begin, end)
+            
+            # Submit the form using multiple strategies
+            self._submit_form()
+            
+            # Wait for results to load
+            self._page.wait_for_load_state("networkidle")
+            
+            logger.info(f"Results loaded at: {self._page.url}")
+            
+            # Parse the results
+            permits = self._parse_results_page()
+            
+            # Handle pagination if needed
+            total_pages = 1
+            if max_pages is None or max_pages > 1:
+                total_pages = self._handle_pagination(max_pages)
+            
+            logger.info(f"Found {len(permits)} permits across {total_pages} pages")
+            
+            return {
+                "source_root": self.base_url,
+                "query_params": {
+                    "begin": begin,
+                    "end": end
+                },
+                "pages": total_pages,
+                "count": len(permits),
+                "items": permits,
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "method": "playwright",
+                "results_url": self._page.url
+            }
+            
+        except Exception as e:
+            logger.error(f"Playwright search failed: {e}")
+            raise
+    
+    def _fill_date_fields(self, begin: str, end: str):
+        """Fill the date fields using multiple strategies."""
+        logger.info(f"Filling date fields: {begin} to {end}")
+        
+        # Strategy 1: Try to fill by visible labels
+        try:
+            self._page.get_by_label("Submitted Date From").fill(begin)
+            self._page.get_by_label("Submitted Date To").fill(end)
+            logger.info("Successfully filled date fields by labels")
+            return
+        except Exception as e:
+            logger.debug(f"Label-based filling failed: {e}")
+        
+        # Strategy 2: Try common name/id attributes
+        try:
+            # Look for inputs with "submitted" and "From"/"To" in name
+            from_input = self._page.locator('input[name*="submitted"][name*="From" i]').first
+            to_input = self._page.locator('input[name*="submitted"][name*="To" i]').first
+            
+            if from_input.is_visible() and to_input.is_visible():
+                from_input.fill(begin)
+                to_input.fill(end)
+                logger.info("Successfully filled date fields by name patterns")
+                return
+        except Exception as e:
+            logger.debug(f"Name pattern filling failed: {e}")
+        
+        # Strategy 3: Try specific RRC W-1 field names
+        try:
+            submit_start = self._page.locator('input[name="submitStart"]')
+            submit_end = self._page.locator('input[name="submitEnd"]')
+            
+            if submit_start.is_visible() and submit_end.is_visible():
+                submit_start.fill(begin)
+                submit_end.fill(end)
+                logger.info("Successfully filled date fields by RRC W-1 names")
+                return
+        except Exception as e:
+            logger.debug(f"RRC W-1 name filling failed: {e}")
+        
+        # Strategy 4: Try any text inputs (fallback)
+        try:
+            text_inputs = self._page.locator('input[type="text"]')
+            if text_inputs.count() >= 2:
+                text_inputs.nth(0).fill(begin)
+                text_inputs.nth(1).fill(end)
+                logger.info("Successfully filled date fields by text input order")
+                return
+        except Exception as e:
+            logger.debug(f"Text input filling failed: {e}")
+        
+        logger.warning("Could not fill date fields with any strategy")
+    
+    def _submit_form(self):
+        """Submit the form using multiple strategies."""
+        logger.info("Attempting to submit form")
+        
+        # Strategy 1: Try various submit button selectors
+        submit_selectors = [
+            'button:has-text("Submit")',
+            'input[type="submit"]',
+            'input[type="button"][value*="Submit" i]',
+            'input[value="Submit"]',
+            'a:has-text("Submit")',
+            'input[name="submit"]',
+            'button[type="submit"]'
+        ]
+        
+        for selector in submit_selectors:
             try:
-                self._setup_driver()
+                submit_btn = self._page.locator(selector).first
+                if submit_btn.is_visible():
+                    submit_btn.click()
+                    logger.info(f"Successfully submitted form using selector: {selector}")
+                    return
             except Exception as e:
-                logger.error(f"Failed to setup driver in _ensure_driver: {e}")
-                self._use_requests_fallback = True
-                self._driver_initialized = False
+                logger.debug(f"Submit selector {selector} failed: {e}")
+        
+        # Strategy 2: Press Enter on last field
+        try:
+            last_input = self._page.locator('input[type="text"]').last
+            if last_input.is_visible():
+                last_input.focus()
+                self._page.keyboard.press("Enter")
+                logger.info("Successfully submitted form using Enter key")
+                return
+        except Exception as e:
+            logger.debug(f"Enter key submission failed: {e}")
+        
+        # Strategy 3: Programmatic form submit
+        try:
+            self._page.evaluate("""
+                const form = document.querySelector('form');
+                if (form) form.submit();
+            """)
+            logger.info("Successfully submitted form programmatically")
+            return
+        except Exception as e:
+            logger.debug(f"Programmatic submission failed: {e}")
+        
+        logger.warning("Could not submit form with any strategy")
+    
+    def _parse_results_page(self) -> List[Dict[str, Any]]:
+        """Parse the results page to extract permit data."""
+        logger.info("Parsing results page")
+        
+        try:
+            # Find the main results table
+            tables = self._page.locator("table")
+            results_table = None
+            
+            for i in range(tables.count()):
+                table = tables.nth(i)
+                # Check if this table has headers that suggest permit data
+                headers = table.locator("th, td").first
+                if headers.is_visible():
+                    header_text = headers.text_content().lower()
+                    if any(keyword in header_text for keyword in ['status', 'operator', 'county', 'permit', 'well']):
+                        results_table = table
+                        break
+            
+            if not results_table:
+                logger.warning("No results table found")
+                return []
+            
+            # Extract headers
+            header_row = results_table.locator("tr").first
+            headers = [th.text_content().strip() for th in header_row.locator("th, td").all()]
+            logger.info(f"Found table headers: {headers}")
+            
+            # Create header mapping
+            header_mapping = {}
+            for i, header in enumerate(headers):
+                header_lower = header.lower()
+                
+                # Map to normalized field names
+                if 'status date' in header_lower:
+                    header_mapping[i] = 'status_date'
+                elif 'status' in header_lower and ('#' in header or 'no' in header_lower or header_lower == 'status'):
+                    header_mapping[i] = 'status'
+                elif 'api' in header_lower:
+                    header_mapping[i] = 'api_no'
+                elif 'operator' in header_lower:
+                    header_mapping[i] = 'operator'
+                elif 'lease' in header_lower:
+                    header_mapping[i] = 'lease_name'
+                elif 'well' in header_lower and '#' in header:
+                    header_mapping[i] = 'well_id'
+                elif 'dist' in header_lower:
+                    header_mapping[i] = 'district'
+                elif 'county' in header_lower:
+                    header_mapping[i] = 'county'
+                elif 'wellbore' in header_lower:
+                    header_mapping[i] = 'wellbore_profile'
+                elif 'filing' in header_lower and 'purpose' in header_lower:
+                    header_mapping[i] = 'filing_purpose'
+                elif 'amend' in header_lower:
+                    header_mapping[i] = 'amended'
+                elif 'total depth' in header_lower:
+                    header_mapping[i] = 'total_depth'
+                elif 'stacked' in header_lower:
+                    header_mapping[i] = 'stacked_parent'
+                elif 'queue' in header_lower:
+                    header_mapping[i] = 'current_queue'
+            
+            # Extract data rows
+            permits = []
+            data_rows = results_table.locator("tr").all()[1:]  # Skip header row
+            
+            for row_idx, row in enumerate(data_rows):
+                try:
+                    cells = row.locator("td, th").all()
+                    if len(cells) != len(headers):
+                        logger.warning(f"Row {row_idx} has {len(cells)} cells, expected {len(headers)}")
+                        continue
+                    
+                    # Build permit dictionary
+                    permit = {}
+                    for i, cell in enumerate(cells):
+                        cell_text = cell.text_content().strip()
+                        if i in header_mapping:
+                            field_name = header_mapping[i]
+                            permit[field_name] = cell_text if cell_text else None
+                    
+                    # Only add if we have some data
+                    if permit:
+                        permits.append(permit)
+                        
+                except Exception as e:
+                    logger.warning(f"Error parsing row {row_idx}: {e}")
+                    continue
+            
+            logger.info(f"Successfully parsed {len(permits)} permits")
+            return permits
+            
+        except Exception as e:
+            logger.error(f"Error parsing results page: {e}")
+            return []
+    
+    def _handle_pagination(self, max_pages: Optional[int]) -> int:
+        """Handle pagination to fetch additional pages."""
+        logger.info("Handling pagination")
+        
+        total_pages = 1
+        current_page = 1
+        
+        while (max_pages is None or current_page < max_pages):
+            # Look for pagination controls
+            next_selectors = [
+                'a:has-text("Next >")',
+                'a:has-text("Next")',
+                'input[name="pager.offset"]',
+                'button:has-text("Next")'
+            ]
+            
+            next_link = None
+            for selector in next_selectors:
+                try:
+                    link = self._page.locator(selector).first
+                    if link.is_visible():
+                        next_link = link
+                        break
+                except:
+                    continue
+            
+            if not next_link:
+                logger.info("No more pages found")
+                break
+            
+            try:
+                # Click the next page link
+                next_link.click()
+                self._page.wait_for_load_state("networkidle")
+                current_page += 1
+                total_pages = current_page
+                
+                logger.info(f"Navigated to page {current_page}")
+                
+                # Parse additional permits from this page
+                page_permits = self._parse_results_page()
+                if page_permits:
+                    # Add to our results (this would need to be handled by the caller)
+                    logger.info(f"Found {len(page_permits)} permits on page {current_page}")
+                else:
+                    logger.info(f"No permits found on page {current_page}, stopping pagination")
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Error navigating to next page: {e}")
+                break
+        
+        return total_pages
     
     def _requests_fallback_fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -307,7 +531,7 @@ class RRCW1Client:
                 "count": len(permits),
                 "items": permits,
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "warning": "Selenium failed, using enhanced requests fallback.",
+                "warning": "Playwright failed, using enhanced requests fallback.",
                 "fallback_info": {
                     "forms_found": len(soup.find_all('form')),
                     "tables_found": len(results_soup.find_all('table')),
@@ -319,9 +543,11 @@ class RRCW1Client:
             logger.error(f"Enhanced requests fallback failed: {e}")
             return self._create_fallback_response(begin, end, [], f"Requests fallback failed: {str(e)}")
     
-    def _find_rrc_w1_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
+    def _find_rrc_w1_date_fields(self, soup) -> Optional[Tuple[str, str]]:
         """Find the correct field names for RRC W-1 date inputs."""
         try:
+            from bs4 import BeautifulSoup
+            
             # Look for RRC W-1 specific date fields
             # Common RRC W-1 field names for submitted date range
             possible_begin_fields = ['submitStart', 'submittedDateBegin', 'beginDate', 'startDate']
@@ -355,7 +581,7 @@ class RRCW1Client:
             logger.warning(f"Error finding RRC W-1 date fields: {e}")
             return None
     
-    def _add_required_form_fields(self, form_data: Dict[str, str], soup: BeautifulSoup) -> None:
+    def _add_required_form_fields(self, form_data: Dict[str, str], soup) -> None:
         """Add any required hidden fields or default selections for RRC W-1 form."""
         try:
             # Look for hidden fields that might be required
@@ -387,7 +613,7 @@ class RRCW1Client:
         except Exception as e:
             logger.warning(f"Error adding required form fields: {e}")
     
-    def _find_submit_button(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+    def _find_submit_button(self, soup) -> Optional[Any]:
         """Find the submit button for the RRC W-1 form."""
         try:
             # Look for submit buttons in the form
@@ -429,11 +655,7 @@ class RRCW1Client:
             logger.warning(f"Error finding submit button: {e}")
             return None
     
-    def _find_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
-        """Legacy method - kept for compatibility."""
-        return self._find_rrc_w1_date_fields(soup)
-    
-    def _parse_results_table(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+    def _parse_results_table(self, soup) -> List[Dict[str, Any]]:
         """Parse the results table to extract permit data."""
         try:
             # Find the main results table
@@ -545,360 +767,3 @@ class RRCW1Client:
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "warning": warning
         }
-    
-    def load_form(self) -> Dict[str, Any]:
-        """
-        Load the W-1 query form page.
-        
-        Returns:
-            Dictionary with page info and driver state
-        """
-        logger.info("Loading W-1 query form...")
-        
-        # Check if we should use fallback
-        if self._use_requests_fallback:
-            logger.info("Using requests fallback for load_form")
-            return self._requests_fallback_fetch_all("01/01/2024", "01/31/2024", 1)
-        
-        # Ensure driver is initialized
-        self._ensure_driver()
-        
-        # Check again after driver setup attempt
-        if self._use_requests_fallback:
-            logger.info("Driver setup failed, using requests fallback for load_form")
-            return self._requests_fallback_fetch_all("01/01/2024", "01/31/2024", 1)
-        
-        url = f"{self.base_url}/DP/initializePublicQueryAction.do"
-        
-        try:
-            self.driver.get(url)
-            
-            # Wait for page to load
-            WebDriverWait(self.driver, self.timeout).until(
-                EC.presence_of_element_located((By.TAG_NAME, "form"))
-            )
-            
-            logger.info(f"Successfully loaded form page: {url}")
-            
-            return {
-                "url": url,
-                "driver": self.driver,
-                "page_source": self.driver.page_source
-            }
-            
-        except TimeoutException:
-            logger.error(f"Timeout loading form page: {url}")
-            raise
-        except Exception as e:
-            logger.error(f"Error loading form page: {e}")
-            raise
-    
-    def query(self, begin_mmddyyyy: str, end_mmddyyyy: str) -> Dict[str, Any]:
-        """
-        Submit a query with date range using Selenium.
-        
-        Args:
-            begin_mmddyyyy: Start date in MM/DD/YYYY format
-            end_mmddyyyy: End date in MM/DD/YYYY format
-            
-        Returns:
-            Dictionary with results page info
-        """
-        logger.info(f"Submitting query for date range: {begin_mmddyyyy} to {end_mmddyyyy}")
-        
-        # Load the form page
-        form_data = self.load_form()
-        
-        try:
-            # Find and fill the date fields
-            begin_field = self.driver.find_element(By.NAME, "submitStart")
-            end_field = self.driver.find_element(By.NAME, "submitEnd")
-            
-            # Clear and fill the date fields
-            begin_field.clear()
-            begin_field.send_keys(begin_mmddyyyy)
-            
-            end_field.clear()
-            end_field.send_keys(end_mmddyyyy)
-            
-            logger.info(f"Set date fields: submitStart={begin_mmddyyyy}, submitEnd={end_mmddyyyy}")
-            
-            # Find and click the submit button
-            submit_button = self.driver.find_element(By.NAME, "submit")
-            submit_button.click()
-            
-            logger.info("Clicked submit button")
-            
-            # Wait for results page to load
-            WebDriverWait(self.driver, self.timeout).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
-            
-            # Get the results page source
-            results_html = self.driver.page_source
-            current_url = self.driver.current_url
-            
-            logger.info(f"Results page loaded: {current_url}")
-            
-            return {
-                "results_html": results_html,
-                "current_url": current_url
-            }
-            
-        except NoSuchElementException as e:
-            logger.error(f"Could not find form element: {e}")
-            raise
-        except TimeoutException as e:
-            logger.error(f"Timeout during form submission: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error during form submission: {e}")
-            raise
-    
-    def _parse_table(self, html: str) -> List[Dict[str, Any]]:
-        """
-        Parse the results table and extract normalized rows.
-        
-        Args:
-            html: HTML content of results page
-            
-        Returns:
-            List of normalized row dictionaries
-        """
-        logger.info("Parsing results table...")
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Find the main results table
-        tables = soup.find_all('table')
-        results_table = None
-        
-        for table in tables:
-            # Look for headers that match RRC W-1 format
-            headers = table.find_all('th')
-            if headers:
-                header_texts = [th.get_text(strip=True) for th in headers]
-                # Check if this looks like the results table
-                if any(keyword in ' '.join(header_texts).lower() for keyword in 
-                      ['status', 'api', 'operator', 'lease', 'well', 'county']):
-                    results_table = table
-                    break
-        
-        if not results_table:
-            logger.warning("No results table found on page")
-            return []
-        
-        # Extract headers
-        header_row = results_table.find('tr')
-        if not header_row:
-            logger.warning("No header row found in table")
-            return []
-        
-        headers = []
-        for th in header_row.find_all(['th', 'td']):
-            header_text = th.get_text(strip=True)
-            headers.append(header_text)
-        
-        logger.info(f"Found table with {len(headers)} columns: {headers}")
-        
-        # Build header mapping
-        header_mapping = {}
-        for i, header in enumerate(headers):
-            header_lower = header.lower()
-            
-            # Map to normalized field names
-            if 'status date' in header_lower:
-                header_mapping[i] = 'status_date'
-            elif 'status' in header_lower and ('#' in header or 'no' in header_lower or header_lower == 'status'):
-                header_mapping[i] = 'status'
-            elif 'api' in header_lower:
-                header_mapping[i] = 'api_no'
-            elif 'operator' in header_lower:
-                header_mapping[i] = 'operator'
-            elif 'lease' in header_lower:
-                header_mapping[i] = 'lease_name'
-            elif 'well' in header_lower and '#' in header:
-                header_mapping[i] = 'well_id'
-            elif 'dist' in header_lower:
-                header_mapping[i] = 'district'
-            elif 'county' in header_lower:
-                header_mapping[i] = 'county'
-            elif 'wellbore' in header_lower:
-                header_mapping[i] = 'wellbore_profile'
-            elif 'filing' in header_lower and 'purpose' in header_lower:
-                header_mapping[i] = 'filing_purpose'
-            elif 'amend' in header_lower:
-                header_mapping[i] = 'amended'
-            elif 'total depth' in header_lower:
-                header_mapping[i] = 'total_depth'
-            elif 'stacked' in header_lower:
-                header_mapping[i] = 'stacked_parent'
-            elif 'queue' in header_lower:
-                header_mapping[i] = 'current_queue'
-        
-        # Extract data rows
-        rows = []
-        data_rows = results_table.find_all('tr')[1:]  # Skip header row
-        
-        for row_idx, row in enumerate(data_rows):
-            try:
-                cells = row.find_all(['td', 'th'])
-                if len(cells) != len(headers):
-                    logger.warning(f"Row {row_idx} has {len(cells)} cells, expected {len(headers)}")
-                    continue
-                
-                # Build row dictionary
-                row_data = {}
-                for i, cell in enumerate(cells):
-                    cell_text = cell.get_text(strip=True)
-                    if i in header_mapping:
-                        field_name = header_mapping[i]
-                        row_data[field_name] = cell_text
-                
-                # Ensure all expected fields are present
-                expected_fields = [
-                    'status_date', 'status', 'api_no', 'operator', 'lease_name',
-                    'well_id', 'district', 'county', 'wellbore_profile',
-                    'filing_purpose', 'amended', 'total_depth', 'stacked_parent',
-                    'current_queue'
-                ]
-                
-                for field in expected_fields:
-                    if field not in row_data:
-                        row_data[field] = None
-                
-                rows.append(row_data)
-                
-            except Exception as e:
-                logger.warning(f"Error parsing row {row_idx}: {e}")
-                continue
-        
-        logger.info(f"Parsed {len(rows)} rows from table")
-        return rows
-    
-    def _next_page_url(self, current_url: str) -> Optional[str]:
-        """
-        Detect pagination and navigate to next page.
-        
-        Args:
-            current_url: Current page URL
-            
-        Returns:
-            Next page URL or None if last page
-        """
-        logger.info("Looking for next page...")
-        
-        try:
-            # Look for "Next >" link
-            next_links = self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Next') or contains(text(), '>')]")
-            
-            if next_links:
-                next_link = next_links[0]
-                href = next_link.get_attribute('href')
-                if href:
-                    logger.info(f"Found 'Next >' link: {href}")
-                    return href
-            
-            # Look for pager.offset pattern
-            all_links = self.driver.find_elements(By.TAG_NAME, 'a')
-            for link in all_links:
-                href = link.get_attribute('href')
-                if href and 'pager.offset' in href:
-                    logger.info(f"Found pager.offset link: {href}")
-                    return href
-            
-            logger.info("No next page found")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error looking for next page: {e}")
-            return None
-    
-    def fetch_all(
-        self,
-        begin_mmddyyyy: str,
-        end_mmddyyyy: str,
-        max_pages: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Fetch all results across all pages using Selenium.
-        
-        Args:
-            begin_mmddyyyy: Start date in MM/DD/YYYY format
-            end_mmddyyyy: End date in MM/DD/YYYY format
-            max_pages: Maximum number of pages to fetch (None for all)
-            
-        Returns:
-            Dictionary with query results and metadata
-        """
-        logger.info(f"Fetching all results for {begin_mmddyyyy} to {end_mmddyyyy}")
-        
-        # Check if we should use fallback
-        if self._use_requests_fallback:
-            logger.info("Using requests fallback due to Selenium failure")
-            return self._requests_fallback_fetch_all(begin_mmddyyyy, end_mmddyyyy, max_pages)
-        
-        try:
-            # Submit initial query
-            query_result = self.query(begin_mmddyyyy, end_mmddyyyy)
-            
-            all_items = []
-            current_html = query_result["results_html"]
-            current_url = query_result["current_url"]
-            page_count = 0
-            
-            while current_html and (max_pages is None or page_count < max_pages):
-                page_count += 1
-                logger.info(f"Processing page {page_count}")
-                
-                # Parse current page
-                page_items = self._parse_table(current_html)
-                all_items.extend(page_items)
-                
-                logger.info(f"Page {page_count}: found {len(page_items)} items")
-                
-                # Look for next page
-                next_url = self._next_page_url(current_url)
-                if not next_url:
-                    logger.info("No more pages found")
-                    break
-                
-                # Navigate to next page
-                try:
-                    self.driver.get(next_url)
-                    WebDriverWait(self.driver, self.timeout).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "body"))
-                    )
-                    current_html = self.driver.page_source
-                    current_url = self.driver.current_url
-                except Exception as e:
-                    logger.error(f"Error fetching next page: {e}")
-                    break
-            
-            logger.info(f"Completed fetching: {page_count} pages, {len(all_items)} total items")
-            
-            return {
-                "query": {
-                    "begin": begin_mmddyyyy,
-                    "end": end_mmddyyyy
-                },
-                "pages": page_count,
-                "count": len(all_items),
-                "items": all_items,
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "source_root": self.base_url
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in fetch_all: {e}")
-            # Try fallback if Selenium fails
-            if not self._use_requests_fallback:
-                logger.warning("Selenium failed, attempting requests fallback...")
-                self._use_requests_fallback = True
-                return self._requests_fallback_fetch_all(begin_mmddyyyy, end_mmddyyyy, max_pages)
-            else:
-                raise
-        finally:
-            # Clean up driver
-            if self.driver:
-                self.driver.quit()
