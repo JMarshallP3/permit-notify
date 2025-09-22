@@ -203,7 +203,8 @@ class RRCW1Client:
     
     def _infer_submitted_date_names(self, soup: BeautifulSoup) -> Tuple[str, str]:
         """
-        Robustly identify the two date inputs for 'Submitted Date: Begin' and 'End'.
+        Identify the two date inputs for 'Submitted Date: Begin' and 'End'.
+        Uses known field names from RRC W-1 system.
         
         Args:
             soup: BeautifulSoup object of the form page
@@ -215,6 +216,21 @@ class RRCW1Client:
             ValueError: If date fields cannot be identified
         """
         logger.info("Inferring submitted date field names...")
+        
+        # Known field names for RRC W-1 system
+        known_begin_name = "submitStart"
+        known_end_name = "submitEnd"
+        
+        # Verify these fields exist in the form
+        all_inputs = soup.find_all('input')
+        input_names = [inp.get('name', '') for inp in all_inputs]
+        
+        if known_begin_name in input_names and known_end_name in input_names:
+            logger.info(f"Using known RRC W-1 field names: begin='{known_begin_name}', end='{known_end_name}'")
+            return known_begin_name, known_end_name
+        
+        # Fallback to original logic if known names not found
+        logger.warning("Known field names not found, falling back to discovery logic")
         
         # Strategy 1: Find label or text containing 'Submitted Date'
         submitted_date_elements = soup.find_all(string=re.compile(r'submitted\s+date', re.IGNORECASE))

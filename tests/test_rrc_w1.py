@@ -67,14 +67,14 @@ class TestRRCW1Client:
         assert soup.find('h1').get_text() == "Test"
     
     def test_infer_submitted_date_names_success(self):
-        """Test successful date field name inference."""
+        """Test successful date field name inference with RRC W-1 field names."""
         html = """
         <html>
             <body>
                 <form>
                     <label>Submitted Date:</label>
-                    <input type="text" name="submitDateBegin" />
-                    <input type="text" name="submitDateEnd" />
+                    <input type="text" name="submitStart" />
+                    <input type="text" name="submitEnd" />
                 </form>
             </body>
         </html>
@@ -85,8 +85,8 @@ class TestRRCW1Client:
         
         begin_name, end_name = client._infer_submitted_date_names(soup)
         
-        assert begin_name == "submitDateBegin"
-        assert end_name == "submitDateEnd"
+        assert begin_name == "submitStart"
+        assert end_name == "submitEnd"
     
     def test_infer_submitted_date_names_fallback(self):
         """Test date field name inference with fallback strategy."""
