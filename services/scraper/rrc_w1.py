@@ -275,8 +275,19 @@ class RRCW1Client:
             # Add any required hidden fields or default selections
             self._add_required_form_fields(form_data, soup)
             
-            # Step 5: Submit the form
+            # Step 5: Submit the form with proper submit button
             logger.info(f"Submitting form to: {submit_url}")
+            
+            # Add submit button to form data
+            submit_button = self._find_submit_button(soup)
+            if submit_button:
+                submit_name = submit_button.get('name')
+                submit_value = submit_button.get('value', 'Submit')
+                if submit_name:
+                    form_data[submit_name] = submit_value
+                    logger.info(f"Added submit button: {submit_name}={submit_value}")
+            
+            # Submit the form
             response = session.post(submit_url, data=form_data, timeout=self.timeout)
             response.raise_for_status()
             
@@ -375,6 +386,48 @@ class RRCW1Client:
             
         except Exception as e:
             logger.warning(f"Error adding required form fields: {e}")
+    
+    def _find_submit_button(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """Find the submit button for the RRC W-1 form."""
+        try:
+            # Look for submit buttons in the form
+            form = soup.find('form')
+            if not form:
+                return None
+            
+            # Look for input submit buttons
+            submit_inputs = form.find_all('input', {'type': 'submit'})
+            if submit_inputs:
+                # Prefer buttons with "Submit" text
+                for submit_input in submit_inputs:
+                    value = submit_input.get('value', '').lower()
+                    if 'submit' in value:
+                        logger.info(f"Found submit button: {submit_input.get('name')}={submit_input.get('value')}")
+                        return submit_input
+                # If no "Submit" button, use the first submit input
+                logger.info(f"Using first submit button: {submit_inputs[0].get('name')}={submit_inputs[0].get('value')}")
+                return submit_inputs[0]
+            
+            # Look for button elements
+            submit_buttons = form.find_all('button', {'type': 'submit'})
+            if submit_buttons:
+                logger.info(f"Found submit button element: {submit_buttons[0].get('name')}")
+                return submit_buttons[0]
+            
+            # Look for any button that might be a submit button
+            buttons = form.find_all('button')
+            for button in buttons:
+                button_text = button.get_text().lower()
+                if 'submit' in button_text:
+                    logger.info(f"Found submit button by text: {button.get('name')}")
+                    return button
+            
+            logger.warning("No submit button found in form")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error finding submit button: {e}")
+            return None
     
     def _find_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
         """Legacy method - kept for compatibility."""
