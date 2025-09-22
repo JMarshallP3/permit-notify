@@ -160,6 +160,119 @@ class Scraper:
         
         return None
     
+    def _infer_filename(self, url: str, response: requests.Response) -> str:
+        """
+        Infer filename from URL or Content-Disposition header.
+        
+        Args:
+            url: The URL being downloaded
+            response: The response object
+            
+        Returns:
+            Inferred filename
+        """
+        # Try Content-Disposition header first
+        content_disposition = response.headers.get('Content-Disposition', '')
+        if content_disposition:
+            # Look for filename= or filename*= in Content-Disposition
+            import re
+            filename_match = re.search(r'filename[*]?=["\']?([^"\';\r\n]+)["\']?', content_disposition)
+            if filename_match:
+                filename = filename_match.group(1).strip()
+                self.logger.info(f"Inferred filename from Content-Disposition: {filename}")
+                return filename
+        
+        # Fall back to URL path
+        parsed_url = urlparse(url)
+        path = parsed_url.path
+        if path and '/' in path:
+            filename = path.split('/')[-1]
+            if filename and '.' in filename:
+                self.logger.info(f"Inferred filename from URL: {filename}")
+                return filename
+        
+        # Default filename if nothing else works
+        default_filename = "download.csv"
+        self.logger.info(f"Using default filename: {default_filename}")
+        return default_filename
+    
+    def download_csv(self, url: str, max_retries: int = 3) -> tuple[Optional[bytes], Optional[str]]:
+        """
+        Download CSV content from URL with streaming and retry logic.
+        
+        Args:
+            url: URL to download
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            Tuple of (content_bytes, filename) or (None, None) if failed
+        """
+        backoff_delays = [0.5, 1.0, 2.0]  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                self.logger.info(f"Downloading CSV (attempt {attempt + 1}/{max_retries}): {url}")
+                
+                # Stream the content to avoid loading large files into memory
+                response = self.session.get(url, timeout=self.scrape_timeout, stream=True)
+                
+                if response.status_code == 200:
+                    # Read the content
+                    content_bytes = b''
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            content_bytes += chunk
+                    
+                    # Infer filename
+                    filename = self._infer_filename(url, response)
+                    
+                    self.logger.info(f"Successfully downloaded CSV: {filename} ({len(content_bytes)} bytes)")
+                    return content_bytes, filename
+                else:
+                    self.logger.warning(f"Non-200 status code {response.status_code} for CSV download {url}")
+                    if attempt < max_retries - 1:
+                        delay = backoff_delays[min(attempt, len(backoff_delays) - 1)]
+                        self.logger.info(f"Retrying CSV download in {delay} seconds...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        return None, None
+                        
+            except Timeout:
+                self.logger.warning(f"Timeout error downloading CSV {url} (attempt {attempt + 1})")
+                if attempt < max_retries - 1:
+                    delay = backoff_delays[min(attempt, len(backoff_delays) - 1)]
+                    time.sleep(delay)
+                    continue
+                else:
+                    return None, None
+            except ConnectionError:
+                self.logger.warning(f"Connection error downloading CSV {url} (attempt {attempt + 1})")
+                if attempt < max_retries - 1:
+                    delay = backoff_delays[min(attempt, len(backoff_delays) - 1)]
+                    time.sleep(delay)
+                    continue
+                else:
+                    return None, None
+            except RequestException as e:
+                self.logger.warning(f"Request error downloading CSV {url} (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    delay = backoff_delays[min(attempt, len(backoff_delays) - 1)]
+                    time.sleep(delay)
+                    continue
+                else:
+                    return None, None
+            except Exception as e:
+                self.logger.error(f"Unexpected error downloading CSV {url} (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    delay = backoff_delays[min(attempt, len(backoff_delays) - 1)]
+                    time.sleep(delay)
+                    continue
+                else:
+                    return None, None
+        
+        return None, None
+    
     def _find_permit_table(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
         Find the permit data table using robust detection strategy.
