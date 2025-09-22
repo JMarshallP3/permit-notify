@@ -259,18 +259,21 @@ class RRCW1Client:
                         form_data[name] = input_elem.get_text() or ''
             
             # Step 4: Set the date range fields
-            # Try to find the correct field names for date inputs
-            date_fields = self._find_date_fields(soup)
+            # Look for the actual RRC W-1 form fields
+            date_fields = self._find_rrc_w1_date_fields(soup)
             if date_fields:
                 begin_field, end_field = date_fields
                 form_data[begin_field] = begin
                 form_data[end_field] = end
-                logger.info(f"Set date fields: {begin_field}={begin}, {end_field}={end}")
+                logger.info(f"Set RRC W-1 date fields: {begin_field}={begin}, {end_field}={end}")
             else:
-                # Fallback to common field names
+                # Try common RRC W-1 field names
                 form_data['submitStart'] = begin
                 form_data['submitEnd'] = end
                 logger.info(f"Using fallback date fields: submitStart={begin}, submitEnd={end}")
+            
+            # Add any required hidden fields or default selections
+            self._add_required_form_fields(form_data, soup)
             
             # Step 5: Submit the form
             logger.info(f"Submitting form to: {submit_url}")
@@ -305,42 +308,77 @@ class RRCW1Client:
             logger.error(f"Enhanced requests fallback failed: {e}")
             return self._create_fallback_response(begin, end, [], f"Requests fallback failed: {str(e)}")
     
-    def _find_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
-        """Find the correct field names for date inputs."""
+    def _find_rrc_w1_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
+        """Find the correct field names for RRC W-1 date inputs."""
         try:
-            # Look for labels containing "Submitted Date"
-            date_labels = soup.find_all('label', string=lambda text: text and 'submitted date' in text.lower())
+            # Look for RRC W-1 specific date fields
+            # Common RRC W-1 field names for submitted date range
+            possible_begin_fields = ['submitStart', 'submittedDateBegin', 'beginDate', 'startDate']
+            possible_end_fields = ['submitEnd', 'submittedDateEnd', 'endDate', 'stopDate']
             
-            for label in date_labels:
-                # Find associated input fields
-                label_text = label.get_text().lower()
-                if 'begin' in label_text or 'start' in label_text:
-                    begin_input = label.find_next('input')
-                    if begin_input:
-                        begin_name = begin_input.get('name')
-                        # Find the end date input
-                        end_input = begin_input.find_next('input')
-                        if end_input and end_input.get('name') != begin_name:
-                            end_name = end_input.get('name')
-                            return (begin_name, end_name)
-            
-            # Fallback: look for input fields with common date field names
+            # First, try to find fields by looking for text inputs near date-related labels
             inputs = soup.find_all('input', {'type': 'text'})
+            
             for input_elem in inputs:
                 name = input_elem.get('name', '').lower()
-                if 'submitstart' in name or 'begindate' in name:
+                
+                # Check if this looks like a begin date field
+                if any(field.lower() in name for field in possible_begin_fields):
                     begin_name = input_elem.get('name')
-                    # Find corresponding end field
+                    
+                    # Look for the corresponding end field
                     for end_input in inputs:
                         end_name = end_input.get('name', '').lower()
-                        if ('submitend' in end_name or 'enddate' in end_name) and end_input.get('name') != begin_name:
+                        if any(field.lower() in end_name for field in possible_end_fields):
                             return (begin_name, end_input.get('name'))
+            
+            # Fallback: look for any text inputs that might be date fields
+            text_inputs = [inp for inp in inputs if inp.get('name')]
+            if len(text_inputs) >= 2:
+                # Assume first two text inputs are begin/end dates
+                return (text_inputs[0].get('name'), text_inputs[1].get('name'))
             
             return None
             
         except Exception as e:
-            logger.warning(f"Error finding date fields: {e}")
+            logger.warning(f"Error finding RRC W-1 date fields: {e}")
             return None
+    
+    def _add_required_form_fields(self, form_data: Dict[str, str], soup: BeautifulSoup) -> None:
+        """Add any required hidden fields or default selections for RRC W-1 form."""
+        try:
+            # Look for hidden fields that might be required
+            hidden_inputs = soup.find_all('input', {'type': 'hidden'})
+            for hidden_input in hidden_inputs:
+                name = hidden_input.get('name')
+                value = hidden_input.get('value', '')
+                if name and name not in form_data:
+                    form_data[name] = value
+                    logger.debug(f"Added hidden field: {name}={value}")
+            
+            # Look for required select fields that need default values
+            selects = soup.find_all('select')
+            for select in selects:
+                name = select.get('name')
+                if name and name not in form_data:
+                    # Try to find a default option
+                    default_option = select.find('option', selected=True)
+                    if default_option:
+                        form_data[name] = default_option.get('value', '')
+                        logger.debug(f"Added default select: {name}={form_data[name]}")
+                    else:
+                        # If no default, try the first option
+                        first_option = select.find('option')
+                        if first_option:
+                            form_data[name] = first_option.get('value', '')
+                            logger.debug(f"Added first select option: {name}={form_data[name]}")
+            
+        except Exception as e:
+            logger.warning(f"Error adding required form fields: {e}")
+    
+    def _find_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
+        """Legacy method - kept for compatibility."""
+        return self._find_rrc_w1_date_fields(soup)
     
     def _parse_results_table(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """Parse the results table to extract permit data."""
