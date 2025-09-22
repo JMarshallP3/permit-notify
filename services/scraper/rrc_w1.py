@@ -194,6 +194,7 @@ class RRCW1Client:
         
         logger.info(f"Discovered form with action={action_url} and {len(fields)} fields")
         logger.debug(f"Form fields: {list(fields.keys())}")
+        logger.info(f"Form action URL: {action_url}")
         
         return {
             "action": action_url,
@@ -326,6 +327,10 @@ class RRCW1Client:
         # Set date fields
         fields[begin_name] = begin_mmddyyyy
         fields[end_name] = end_mmddyyyy
+        
+        # Log the fields being submitted for debugging
+        logger.info(f"Submitting form with {len(fields)} fields")
+        logger.debug(f"Form fields: {fields}")
         
         # Submit the form
         response = self._post(action_url, fields)
