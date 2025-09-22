@@ -29,6 +29,9 @@ COPY app/ ./app/
 COPY routes/ ./routes/
 COPY services/ ./services/
 COPY db/ ./db/
+COPY tools/ ./tools/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
 
 # Expose port
 EXPOSE 8000
