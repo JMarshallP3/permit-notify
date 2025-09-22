@@ -217,7 +217,7 @@ class RRCW1Client:
         logger.info("Inferring submitted date field names...")
         
         # Strategy 1: Find label or text containing 'Submitted Date'
-        submitted_date_elements = soup.find_all(text=re.compile(r'submitted\s+date', re.IGNORECASE))
+        submitted_date_elements = soup.find_all(string=re.compile(r'submitted\s+date', re.IGNORECASE))
         
         begin_name = None
         end_name = None
@@ -371,7 +371,7 @@ class RRCW1Client:
             # Map to normalized field names
             if 'status date' in header_lower:
                 header_mapping[i] = 'status_date'
-            elif 'status' in header_lower and '#' in header:
+            elif 'status' in header_lower and ('#' in header or 'no' in header_lower or header_lower == 'status'):
                 header_mapping[i] = 'status'
             elif 'api' in header_lower:
                 header_mapping[i] = 'api_no'
@@ -452,7 +452,7 @@ class RRCW1Client:
         logger.info("Looking for next page...")
         
         # Strategy 1: Look for "Next >" link
-        next_links = soup.find_all('a', text=re.compile(r'next\s*>', re.IGNORECASE))
+        next_links = soup.find_all('a', string=re.compile(r'next\s*>', re.IGNORECASE))
         if next_links:
             next_link = next_links[0]
             href = next_link.get('href')
