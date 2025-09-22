@@ -191,16 +191,16 @@ class RRCW1Client:
     
     def _requests_fallback_fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
         """
-        Fallback method using requests when Selenium fails.
-        This is a simplified version that returns a basic response.
+        Enhanced requests-based fallback that actually scrapes permit data.
         """
-        logger.info("Using requests-based fallback for RRC W-1 search")
+        logger.info("Using enhanced requests-based fallback for RRC W-1 search")
         
         try:
             import requests
             from bs4 import BeautifulSoup
+            from urllib.parse import urljoin
             
-            # Create a simple session
+            # Create session with proper headers
             session = requests.Session()
             session.headers.update({
                 'User-Agent': self.user_agent,
@@ -208,20 +208,80 @@ class RRCW1Client:
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate',
                 'Connection': 'keep-alive',
+                'Referer': f"{self.base_url}/DP/",
             })
             
-            # Try to access the RRC W-1 page
-            url = f"{self.base_url}/DP/initializePublicQueryAction.do"
-            logger.info(f"Fallback: Attempting to access {url}")
+            # Step 1: Load the initial form page
+            form_url = f"{self.base_url}/DP/initializePublicQueryAction.do"
+            logger.info(f"Loading form page: {form_url}")
             
-            response = session.get(url, timeout=self.timeout)
+            response = session.get(form_url, timeout=self.timeout)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Look for any forms or data
-            forms = soup.find_all('form')
-            tables = soup.find_all('table')
+            # Step 2: Find and parse the search form
+            form = soup.find('form')
+            if not form:
+                logger.warning("No form found on page")
+                return self._create_fallback_response(begin, end, [], "No search form found")
+            
+            # Extract form action and fields
+            form_action = form.get('action', '')
+            if form_action:
+                submit_url = urljoin(form_url, form_action)
+            else:
+                submit_url = form_url
+            
+            logger.info(f"Form action URL: {submit_url}")
+            
+            # Step 3: Build form data
+            form_data = {}
+            
+            # Extract all form fields
+            for input_elem in form.find_all(['input', 'select', 'textarea']):
+                name = input_elem.get('name')
+                if name:
+                    input_type = input_elem.get('type', 'text')
+                    
+                    if input_type in ['text', 'hidden', 'password']:
+                        form_data[name] = input_elem.get('value', '')
+                    elif input_type in ['checkbox', 'radio']:
+                        if input_elem.get('checked'):
+                            form_data[name] = input_elem.get('value', 'on')
+                    elif input_elem.name == 'select':
+                        selected = input_elem.find('option', selected=True)
+                        if selected:
+                            form_data[name] = selected.get('value', '')
+                        else:
+                            form_data[name] = ''
+                    elif input_elem.name == 'textarea':
+                        form_data[name] = input_elem.get_text() or ''
+            
+            # Step 4: Set the date range fields
+            # Try to find the correct field names for date inputs
+            date_fields = self._find_date_fields(soup)
+            if date_fields:
+                begin_field, end_field = date_fields
+                form_data[begin_field] = begin
+                form_data[end_field] = end
+                logger.info(f"Set date fields: {begin_field}={begin}, {end_field}={end}")
+            else:
+                # Fallback to common field names
+                form_data['submitStart'] = begin
+                form_data['submitEnd'] = end
+                logger.info(f"Using fallback date fields: submitStart={begin}, submitEnd={end}")
+            
+            # Step 5: Submit the form
+            logger.info(f"Submitting form to: {submit_url}")
+            response = session.post(submit_url, data=form_data, timeout=self.timeout)
+            response.raise_for_status()
+            
+            # Step 6: Parse the results
+            results_soup = BeautifulSoup(response.text, 'html.parser')
+            permits = self._parse_results_table(results_soup)
+            
+            logger.info(f"Found {len(permits)} permits in results")
             
             return {
                 "source_root": self.base_url,
@@ -230,31 +290,170 @@ class RRCW1Client:
                     "end": end
                 },
                 "pages": 1,
-                "count": 0,
-                "items": [],
+                "count": len(permits),
+                "items": permits,
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "warning": "Selenium failed, using requests fallback. Limited functionality available.",
+                "warning": "Selenium failed, using enhanced requests fallback.",
                 "fallback_info": {
-                    "forms_found": len(forms),
-                    "tables_found": len(tables),
-                    "page_title": soup.title.string if soup.title else "Unknown"
+                    "forms_found": len(soup.find_all('form')),
+                    "tables_found": len(results_soup.find_all('table')),
+                    "page_title": results_soup.title.string if results_soup.title else "W1 Search Results"
                 }
             }
             
         except Exception as e:
-            logger.error(f"Requests fallback also failed: {e}")
-            return {
-                "source_root": self.base_url,
-                "query_params": {
-                    "begin": begin,
-                    "end": end
-                },
-                "pages": 0,
-                "count": 0,
-                "items": [],
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "warning": f"Both Selenium and requests fallback failed: {str(e)}"
-            }
+            logger.error(f"Enhanced requests fallback failed: {e}")
+            return self._create_fallback_response(begin, end, [], f"Requests fallback failed: {str(e)}")
+    
+    def _find_date_fields(self, soup: BeautifulSoup) -> Optional[Tuple[str, str]]:
+        """Find the correct field names for date inputs."""
+        try:
+            # Look for labels containing "Submitted Date"
+            date_labels = soup.find_all('label', string=lambda text: text and 'submitted date' in text.lower())
+            
+            for label in date_labels:
+                # Find associated input fields
+                label_text = label.get_text().lower()
+                if 'begin' in label_text or 'start' in label_text:
+                    begin_input = label.find_next('input')
+                    if begin_input:
+                        begin_name = begin_input.get('name')
+                        # Find the end date input
+                        end_input = begin_input.find_next('input')
+                        if end_input and end_input.get('name') != begin_name:
+                            end_name = end_input.get('name')
+                            return (begin_name, end_name)
+            
+            # Fallback: look for input fields with common date field names
+            inputs = soup.find_all('input', {'type': 'text'})
+            for input_elem in inputs:
+                name = input_elem.get('name', '').lower()
+                if 'submitstart' in name or 'begindate' in name:
+                    begin_name = input_elem.get('name')
+                    # Find corresponding end field
+                    for end_input in inputs:
+                        end_name = end_input.get('name', '').lower()
+                        if ('submitend' in end_name or 'enddate' in end_name) and end_input.get('name') != begin_name:
+                            return (begin_name, end_input.get('name'))
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error finding date fields: {e}")
+            return None
+    
+    def _parse_results_table(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Parse the results table to extract permit data."""
+        try:
+            # Find the main results table
+            tables = soup.find_all('table')
+            results_table = None
+            
+            for table in tables:
+                # Look for a table with headers that suggest it contains permit data
+                headers = table.find_all('th')
+                if headers:
+                    header_text = ' '.join([h.get_text().lower() for h in headers])
+                    if any(keyword in header_text for keyword in ['status', 'operator', 'county', 'permit', 'well']):
+                        results_table = table
+                        break
+            
+            if not results_table:
+                logger.warning("No results table found")
+                return []
+            
+            # Extract headers
+            header_row = results_table.find('tr')
+            if not header_row:
+                logger.warning("No header row found in results table")
+                return []
+            
+            headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
+            logger.info(f"Found table headers: {headers}")
+            
+            # Create header mapping
+            header_mapping = {}
+            for i, header in enumerate(headers):
+                header_lower = header.lower()
+                
+                # Map to normalized field names
+                if 'status date' in header_lower:
+                    header_mapping[i] = 'status_date'
+                elif 'status' in header_lower and ('#' in header or 'no' in header_lower or header_lower == 'status'):
+                    header_mapping[i] = 'status'
+                elif 'api' in header_lower:
+                    header_mapping[i] = 'api_no'
+                elif 'operator' in header_lower:
+                    header_mapping[i] = 'operator'
+                elif 'lease' in header_lower:
+                    header_mapping[i] = 'lease_name'
+                elif 'well' in header_lower and '#' in header:
+                    header_mapping[i] = 'well_id'
+                elif 'dist' in header_lower:
+                    header_mapping[i] = 'district'
+                elif 'county' in header_lower:
+                    header_mapping[i] = 'county'
+                elif 'wellbore' in header_lower:
+                    header_mapping[i] = 'wellbore_profile'
+                elif 'filing' in header_lower and 'purpose' in header_lower:
+                    header_mapping[i] = 'filing_purpose'
+                elif 'amend' in header_lower:
+                    header_mapping[i] = 'amended'
+                elif 'total depth' in header_lower:
+                    header_mapping[i] = 'total_depth'
+                elif 'stacked' in header_lower:
+                    header_mapping[i] = 'stacked_parent'
+                elif 'queue' in header_lower:
+                    header_mapping[i] = 'current_queue'
+            
+            # Extract data rows
+            permits = []
+            data_rows = results_table.find_all('tr')[1:]  # Skip header row
+            
+            for row_idx, row in enumerate(data_rows):
+                try:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) != len(headers):
+                        logger.warning(f"Row {row_idx} has {len(cells)} cells, expected {len(headers)}")
+                        continue
+                    
+                    # Build permit dictionary
+                    permit = {}
+                    for i, cell in enumerate(cells):
+                        cell_text = cell.get_text(strip=True)
+                        if i in header_mapping:
+                            field_name = header_mapping[i]
+                            permit[field_name] = cell_text if cell_text else None
+                    
+                    # Only add if we have some data
+                    if permit:
+                        permits.append(permit)
+                        
+                except Exception as e:
+                    logger.warning(f"Error parsing row {row_idx}: {e}")
+                    continue
+            
+            logger.info(f"Successfully parsed {len(permits)} permits")
+            return permits
+            
+        except Exception as e:
+            logger.error(f"Error parsing results table: {e}")
+            return []
+    
+    def _create_fallback_response(self, begin: str, end: str, items: List[Dict[str, Any]], warning: str) -> Dict[str, Any]:
+        """Create a standardized fallback response."""
+        return {
+            "source_root": self.base_url,
+            "query_params": {
+                "begin": begin,
+                "end": end
+            },
+            "pages": 1,
+            "count": len(items),
+            "items": items,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "warning": warning
+        }
     
     def load_form(self) -> Dict[str, Any]:
         """
