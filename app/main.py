@@ -11,6 +11,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Create a single Scraper instance for reuse
+scraper_instance = Scraper()
+
 # Include the API routes
 app.include_router(api_router, prefix="/api/v1")
 
@@ -24,9 +27,8 @@ async def health_check():
 
 @app.get("/scrape")
 async def scrape():
-    scraper = Scraper()
-    results = scraper.run()
-    return {"status": "scraper executed", "results": results}
+    result = scraper_instance.run()
+    return result
 
 if __name__ == "__main__":
     import uvicorn
