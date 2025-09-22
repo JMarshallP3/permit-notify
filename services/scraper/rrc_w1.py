@@ -92,13 +92,37 @@ class RRCW1Client:
         chrome_options.add_argument("--disable-backgrounding-occluded-windows")
         chrome_options.add_argument("--disable-renderer-backgrounding")
         
+        # Container-specific options
+        chrome_options.add_argument("--disable-setuid-sandbox")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--disable-translate")
+        chrome_options.add_argument("--hide-scrollbars")
+        chrome_options.add_argument("--metrics-recording-only")
+        chrome_options.add_argument("--mute-audio")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--safebrowsing-disable-auto-update")
+        chrome_options.add_argument("--disable-ipc-flooding-protection")
+        
         try:
+            logger.info("Attempting to initialize Chrome WebDriver...")
             self.driver = webdriver.Chrome(options=chrome_options)
             self.driver.set_page_load_timeout(self.timeout)
             self._driver_initialized = True
             logger.info("Chrome WebDriver initialized successfully")
+            
+            # Test the driver with a simple navigation
+            logger.info("Testing WebDriver with simple navigation...")
+            self.driver.get("about:blank")
+            logger.info("WebDriver test successful")
+            
         except Exception as e:
             logger.error(f"Failed to initialize Chrome WebDriver: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            if hasattr(e, 'msg'):
+                logger.error(f"Error message: {e.msg}")
             raise
     
     def __del__(self):
