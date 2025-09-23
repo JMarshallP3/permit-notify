@@ -5,7 +5,7 @@ import logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
 from services.scraper.scraper import Scraper
-from services.scraper.rrc_w1 import RRCW1Client
+from services.scraper.rrc_w1 import RRCW1Client, EngineRedirectToLogin
 from db.session import Base, engine
 from db.repo import upsert_permits, get_recent_permits
 
@@ -137,6 +137,12 @@ async def w1_search(
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
+    except EngineRedirectToLogin as e:
+        logger.warning(f"RRC W-1 search redirected to login: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="RRC W-1 search redirected to login page. Please try again later."
+        )
     except Exception as e:
         logger.error(f"W-1 search error: {e}")
         raise HTTPException(

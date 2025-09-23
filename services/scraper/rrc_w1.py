@@ -1,8 +1,8 @@
 """
-RRC W-1 Drilling Permits Scraper using requests.
+RRC W-1 Drilling Permits Scraper with Dual Engine Support.
 
 This module provides a robust scraper for the Texas Railroad Commission
-W-1 drilling permits search system using the proven requests-based approach.
+W-1 drilling permits search system using both requests and Playwright engines.
 """
 
 import os
@@ -15,36 +15,28 @@ import re
 
 logger = logging.getLogger(__name__)
 
-class RRCScrapeError(Exception):
-    """Custom exception for RRC scraping errors."""
+class EngineRedirectToLogin(Exception):
+    """Exception raised when scraper is redirected to login page."""
     pass
 
-class RRCW1Client:
+class RequestsEngine:
     """
-    Client for scraping RRC W-1 drilling permits using requests.
-    
-    This client uses the proven requests-based approach that successfully
-    bypasses anti-bot measures and gets real permit data.
+    Requests-based engine for RRC W-1 scraping.
+    Uses public endpoints and form rewriting to avoid login redirects.
     """
     
-    def __init__(self, base_url: str = "https://webapps.rrc.state.tx.us"):
-        """
-        Initialize the RRC W-1 client.
-        
-        Args:
-            base_url: Base URL for RRC webapps
-        """
+    def __init__(self, base_url: str = "https://webapps.rrc.state.tx.us", timeout: int = 30):
         self.base_url = base_url.rstrip('/')
         self.dp_base = f"{self.base_url}/DP"
         self.init_url = f"{self.dp_base}/initializePublicQueryAction.do"
+        self.public_search_url = f"{self.dp_base}/publicQuerySearchAction.do"
+        self.timeout = timeout
         
         self.user_agent = os.getenv(
             'USER_AGENT', 
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'PermitTrackerBot/1.0 (+mailto:marshall@craatx.com)'
         )
-        self.timeout = int(os.getenv('SCRAPE_TIMEOUT_SECONDS', '30'))
         
-        # Headers that work with RRC
         self.headers = {
             "User-Agent": self.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -54,11 +46,11 @@ class RRCW1Client:
             "Referer": f"{self.dp_base}/",
         }
         
-        logger.info(f"RRCW1Client initialized with base_url: {base_url}")
+        logger.info(f"RequestsEngine initialized with base_url: {base_url}")
     
     def fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
         """
-        Fetch all permits for the given date range using the proven requests approach.
+        Fetch all permits using requests engine.
         
         Args:
             begin: Start date in MM/DD/YYYY format
@@ -67,87 +59,35 @@ class RRCW1Client:
             
         Returns:
             Dictionary with query results and metadata
-        """
-        logger.info(f"Starting RRC W-1 search: {begin} to {end}, max_pages={max_pages}")
-        
-        try:
-            # Convert string dates to date objects
-            begin_date = datetime.strptime(begin, "%m/%d/%Y").date()
-            end_date = datetime.strptime(end, "%m/%d/%Y").date()
             
-            # Use the proven scraping method
-            permits = self._get_rrc_permits(begin_date, end_date, max_pages)
-            
-            logger.info(f"Successfully fetched {len(permits)} permits")
-            
-            return {
-                "source_root": self.base_url,
-                "query_params": {
-                    "begin": begin,
-                    "end": end
-                },
-                "pages": 1,  # We'll update this based on actual pagination
-                "count": len(permits),
-                "items": permits,
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "method": "requests",
-                "success": True
-            }
-            
-        except Exception as e:
-            logger.error(f"RRC W-1 search failed: {e}")
-            return {
-                "source_root": self.base_url,
-                "query_params": {
-                    "begin": begin,
-                    "end": end
-                },
-                "pages": 0,
-                "count": 0,
-                "items": [],
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "error": str(e),
-                "success": False
-            }
-    
-    def _get_rrc_permits(self, submit_begin: date, submit_end: date, max_pages: Optional[int] = None, pause: float = 0.6) -> List[Dict]:
-        """
-        Scrape the RRC 'Drilling Permit' public query by Submitted Date range.
-        Returns a list of dicts (one per row). No DB. No side effects.
-
-        Args:
-            submit_begin: date for 'Submitted Date: Begin'
-            submit_end:   date for 'Submitted Date: End'
-            max_pages:    maximum number of pages to fetch (None for all)
-            pause:        seconds to sleep between page fetches (be polite)
-
-        Returns:
-            List of permit dictionaries
+        Raises:
+            EngineRedirectToLogin: If redirected to login page
         """
         from bs4 import BeautifulSoup
         import requests
         
+        logger.info(f"RequestsEngine: Starting search {begin} to {end}")
+        
         s = requests.Session()
         s.headers.update(self.headers)
-
+        
         # 1) GET the query page to collect cookies + form + hidden fields
         logger.info(f"Loading initial form page: {self.init_url}")
         r = s.get(self.init_url, timeout=self.timeout)
         if r.status_code != 200:
-            raise RRCScrapeError(f"Init GET failed: HTTP {r.status_code}")
-
+            raise Exception(f"Init GET failed: HTTP {r.status_code}")
+        
         soup = BeautifulSoup(r.text, "lxml")
         form = soup.find("form")
         if not form:
-            raise RRCScrapeError("Could not locate the query form on the page.")
+            raise Exception("Could not locate the query form on the page.")
         
         # Debug: Log page title and form info
         title = soup.find("title")
         logger.info(f"Page title: {title.get_text() if title else 'No title found'}")
         logger.info(f"Form action: {form.get('action', 'No action')}")
-        logger.info(f"Form method: {form.get('method', 'No method')}")
-
-        # Build form payload from existing inputs so we include required hidden fields.
+        
+        # Build form payload from existing inputs
         form_data = {}
         for inp in form.find_all(["input", "select", "textarea"]):
             name = inp.get("name")
@@ -155,54 +95,63 @@ class RRCW1Client:
                 continue
             value = inp.get("value", "")
             form_data[name] = value
-
-        # Fill the date range using the *correct* names as used by RRC
-        date_str = submit_begin.strftime("%m/%d/%Y")
-        form_data["submittedDateFrom"] = date_str
-        form_data["submittedDateTo"] = submit_end.strftime("%m/%d/%Y")
         
-        logger.info(f"Set date fields: submittedDateFrom={date_str}, submittedDateTo={submit_end.strftime('%m/%d/%Y')}")
-
-        # Some forms use a specific submit button name/value; if present, keep it.
-        # Otherwise, just POST the payload to the form action.
-        action = form.get("action") or ""
-        action_url = action if action.startswith("http") else f"{self.dp_base}/{action.lstrip('/') or 'changeQueryPageAction.do'}"
-
+        # Find and set date fields
+        date_fields = self._find_submitted_date_fields(soup)
+        if not date_fields:
+            raise Exception("Could not find Submitted Date input fields")
+        
+        form_data[date_fields[0]] = begin
+        form_data[date_fields[1]] = end
+        logger.info(f"Set date fields: {date_fields[0]}={begin}, {date_fields[1]}={end}")
+        
+        # Find submit button
+        submit_button = self._find_submit_button(form)
+        if submit_button:
+            form_data[submit_button[0]] = submit_button[1]
+            logger.info(f"Found submit button: {submit_button[0]}={submit_button[1]}")
+        
+        # Rewrite action to public endpoint
+        action_url = self.public_search_url
+        logger.info(f"Form action rewritten to: {action_url}")
+        
         # 2) POST the form to get page 1 of results
         logger.info(f"Submitting form to: {action_url}")
-        logger.info(f"Form data keys: {list(form_data.keys())}")
-        logger.info(f"Date fields: submittedDateFrom={form_data.get('submittedDateFrom')}, submittedDateTo={form_data.get('submittedDateTo')}")
-        
         r = s.post(action_url, data=form_data, timeout=self.timeout)
         if r.status_code != 200:
-            raise RRCScrapeError(f"Initial POST failed: HTTP {r.status_code}")
+            raise Exception(f"Initial POST failed: HTTP {r.status_code}")
         
-        # Debug: Log response page title
+        # Check for login redirect
         response_soup = BeautifulSoup(r.text, "lxml")
         response_title = response_soup.find("title")
-        logger.info(f"Response page title: {response_title.get_text() if response_title else 'No title found'}")
-
-        permits: List[Dict] = []
+        response_title_text = response_title.get_text() if response_title else ""
+        
+        if "Login" in response_title_text or "/security/" in r.url:
+            logger.warning(f"Redirected to login: title='{response_title_text}', url='{r.url}'")
+            raise EngineRedirectToLogin("Redirected to login page")
+        
+        logger.info(f"Response page title: {response_title_text}")
+        
+        # Parse results
+        permits = []
         page_html = r.text
         page_count = 0
-
-        # 3) Iterate pages
+        
         while True:
             page_count += 1
             if max_pages and page_count > max_pages:
                 logger.info(f"Reached max_pages limit: {max_pages}")
                 break
-                
+            
             page_soup = BeautifulSoup(page_html, "lxml")
-
-            # Parse the table with the most rows (RRC sometimes nests multiple tables)
+            
+            # Parse the table
             table = self._find_results_table(page_soup)
             if not table:
-                # If first page yields no table, surface helpful info
                 if not permits:
-                    raise RRCScrapeError("No results table found. Check date range or form fields.")
+                    raise Exception("No results table found. Check date range or form fields.")
                 break
-
+            
             # Extract rows
             rows = table.find_all("tr")
             header, data_rows = self._split_header_rows(rows)
@@ -214,50 +163,94 @@ class RRCW1Client:
                 cols = [c.get_text(separator=" ", strip=True) for c in tr.find_all(["td", "th"])]
                 if not cols or all(not c for c in cols):
                     continue
-                    
-                # Build a dict keyed by header when possible; fallback to index
+                
+                # Build a dict keyed by header
                 item = {}
                 if header_text and len(header_text) == len(cols):
                     for k, v in zip(header_text, cols):
-                        if k:  # Only add non-empty keys
+                        if k:
                             item[k] = v
                 else:
                     for i, v in enumerate(cols):
                         item[f"col_{i+1}"] = v
-                        
-                # Also try to capture the drill-down link in the row, if any
-                link = tr.find("a", href=True)
-                if link:
-                    item["detail_link"] = link["href"] if link["href"].startswith("http") else f"{self.dp_base}/{link['href'].lstrip('/')}"
                 
-                # Normalize the item to our database schema
+                # Normalize the item
                 normalized_item = self._normalize_permit_item(item)
                 if normalized_item:
                     permits.append(normalized_item)
-
-            # Find and follow "Next" (pager.offset) if it exists
+            
+            # Find next page
             next_href = self._find_next_link(page_soup)
             if not next_href:
                 logger.info("No more pages found")
                 break
-                
+            
             next_url = next_href if next_href.startswith("http") else f"{self.dp_base}/{next_href.lstrip('/')}"
             logger.info(f"Following next page: {next_url}")
             
-            time.sleep(pause)
+            time.sleep(0.6)  # Be polite
             r = s.get(next_url, timeout=self.timeout)
             if r.status_code != 200:
-                # If "Next" fails, we just stop gracefully
                 logger.warning(f"Next page failed: HTTP {r.status_code}")
                 break
             page_html = r.text
-
-        return permits
-    
-    def _find_results_table(self, soup) -> Optional[Any]:
-        """Pick the largest-rows table as the results table."""
-        from bs4 import BeautifulSoup
         
+        return {
+            "source_root": self.base_url,
+            "query_params": {"begin": begin, "end": end},
+            "pages": page_count,
+            "count": len(permits),
+            "items": permits,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "method": "requests",
+            "success": True
+        }
+    
+    def _find_submitted_date_fields(self, soup) -> Optional[Tuple[str, str]]:
+        """Find the two input fields for Submitted Date begin and end."""
+        # Look for inputs near "Submitted Date" text
+        submitted_date_text = soup.find(text=re.compile(r"Submitted Date", re.IGNORECASE))
+        if submitted_date_text:
+            # Find the parent element and look for nearby inputs
+            parent = submitted_date_text.parent
+            while parent and parent.name != 'form':
+                inputs = parent.find_all("input", {"name": True})
+                if len(inputs) >= 2:
+                    # Look for inputs with names containing 'submit' and 'date'
+                    date_inputs = []
+                    for inp in inputs:
+                        name = inp.get("name", "").lower()
+                        if "submit" in name and "date" in name:
+                            date_inputs.append(inp.get("name"))
+                    
+                    if len(date_inputs) >= 2:
+                        return (date_inputs[0], date_inputs[1])
+                parent = parent.parent
+        
+        # Fallback: scan all inputs for date-related names
+        all_inputs = soup.find_all("input", {"name": True})
+        date_inputs = []
+        for inp in all_inputs:
+            name = inp.get("name", "").lower()
+            if "submit" in name and "date" in name:
+                date_inputs.append(inp.get("name"))
+        
+        if len(date_inputs) >= 2:
+            return (date_inputs[0], date_inputs[1])
+        
+        return None
+    
+    def _find_submit_button(self, form) -> Optional[Tuple[str, str]]:
+        """Find the submit button in the form."""
+        submit_input = form.find("input", {"type": "submit"})
+        if submit_input:
+            name = submit_input.get("name")
+            value = submit_input.get("value", "")
+            return (name, value)
+        return None
+    
+    def _find_results_table(self, soup):
+        """Find the main results table."""
         best = None
         best_rows = 0
         for tbl in soup.find_all("table"):
@@ -266,55 +259,45 @@ class RRCW1Client:
                 best = tbl
                 best_rows = len(rows)
         return best if best_rows > 1 else None
-
+    
     def _split_header_rows(self, rows):
-        """Return (header_cells, data_rows). If no header, header_cells=[], data_rows=rows."""
+        """Return (header_cells, data_rows)."""
         if not rows:
             return [], []
-        # Heuristic: first row is header if it uses <th> or looks like a label row
+        # First row is header if it uses <th> or looks like a label row
         ths = rows[0].find_all("th")
         if ths:
             return ths, rows[1:]
-        # Fallback: treat first row as header if all cells are bold-ish labels
+        # Fallback: treat first row as header if all cells are labels
         tds = rows[0].find_all("td")
         if tds and all(td.get_text(strip=True) for td in tds):
             return tds, rows[1:]
         return [], rows
-
+    
     def _find_next_link(self, soup) -> Optional[str]:
-        """Find the 'Next' pagination link (RRC uses pager.offset in the href)."""
+        """Find the 'Next' pagination link."""
         for a in soup.find_all("a", href=True):
             txt = a.get_text(strip=True).lower()
             href = a["href"]
             if "pager.offset" in href and ("next" in txt or ">" in txt):
                 return href
-        # Sometimes the 'Next' anchor text isn't literally 'Next'; fallback to any anchor with a higher offset
+        # Fallback: find any anchor with a higher offset
         offsets = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
             if "pager.offset" in href:
                 try:
-                    # crude parse: ...pager.offset=120...
                     part = href.split("pager.offset=")[1].split("&")[0]
                     offsets.append((int(part), href))
                 except Exception:
                     pass
         if offsets:
-            # choose the largest offset as "next-ish"
             offsets.sort()
             return offsets[-1][1]
         return None
-
+    
     def _normalize_permit_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Normalize a permit item to our database schema.
-        
-        Args:
-            item: Raw permit data from RRC
-            
-        Returns:
-            Normalized permit dictionary or None if invalid
-        """
+        """Normalize a permit item to our database schema."""
         try:
             normalized = {}
             
@@ -347,7 +330,7 @@ class RRCW1Client:
                 else:
                     normalized[db_field] = None
             
-            # Only return if we have at least some meaningful data
+            # Only return if we have meaningful data
             if any(v for v in normalized.values() if v):
                 return normalized
             else:
@@ -356,4 +339,316 @@ class RRCW1Client:
         except Exception as e:
             logger.warning(f"Error normalizing permit item: {e}")
             return None
+
+
+class PlaywrightEngine:
+    """
+    Playwright-based engine for RRC W-1 scraping.
+    Uses browser automation to handle complex form interactions.
+    """
     
+    def __init__(self, base_url: str = "https://webapps.rrc.state.tx.us", timeout: int = 30000):
+        self.base_url = base_url.rstrip('/')
+        self.dp_base = f"{self.base_url}/DP"
+        self.init_url = f"{self.dp_base}/initializePublicQueryAction.do"
+        self.timeout = timeout
+        
+        logger.info(f"PlaywrightEngine initialized with base_url: {base_url}")
+    
+    def fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Fetch all permits using Playwright engine.
+        
+        Args:
+            begin: Start date in MM/DD/YYYY format
+            end: End date in MM/DD/YYYY format
+            max_pages: Maximum number of pages to fetch (None for all)
+            
+        Returns:
+            Dictionary with query results and metadata
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise Exception("Playwright not installed. Run: pip install playwright && python -m playwright install chromium")
+        
+        logger.info(f"PlaywrightEngine: Starting search {begin} to {end}")
+        
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            
+            try:
+                # Navigate to the query page
+                logger.info(f"Navigating to: {self.init_url}")
+                page.goto(self.init_url, timeout=self.timeout)
+                
+                # Wait for page to load
+                page.wait_for_load_state("networkidle")
+                
+                # Look for "Search W-1s" button and click it if present
+                search_button = page.locator("text=Search W-1s").first
+                if search_button.is_visible():
+                    logger.info("Clicking 'Search W-1s' button")
+                    search_button.click()
+                    page.wait_for_load_state("networkidle")
+                
+                # Find and fill date fields
+                date_fields = self._find_date_fields(page)
+                if not date_fields:
+                    raise Exception("Could not find Submitted Date input fields")
+                
+                logger.info(f"Filling date fields: {date_fields[0]}={begin}, {date_fields[1]}={end}")
+                page.fill(f"input[name='{date_fields[0]}']", begin)
+                page.fill(f"input[name='{date_fields[1]}']", end)
+                
+                # Submit the form
+                logger.info("Submitting form")
+                page.click("input[type='submit']")
+                page.wait_for_load_state("networkidle")
+                
+                # Wait for results table
+                page.wait_for_selector("table", timeout=self.timeout)
+                
+                # Parse results
+                permits = []
+                page_count = 0
+                
+                while True:
+                    page_count += 1
+                    if max_pages and page_count > max_pages:
+                        logger.info(f"Reached max_pages limit: {max_pages}")
+                        break
+                    
+                    # Get page content
+                    page_html = page.content()
+                    
+                    # Parse the table
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(page_html, "lxml")
+                    table = self._find_results_table(soup)
+                    
+                    if not table:
+                        if not permits:
+                            raise Exception("No results table found")
+                        break
+                    
+                    # Extract rows
+                    rows = table.find_all("tr")
+                    header, data_rows = self._split_header_rows(rows)
+                    header_text = [c.get_text(strip=True) for c in header]
+                    
+                    logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
+                    
+                    for tr in data_rows:
+                        cols = [c.get_text(separator=" ", strip=True) for c in tr.find_all(["td", "th"])]
+                        if not cols or all(not c for c in cols):
+                            continue
+                        
+                        # Build a dict keyed by header
+                        item = {}
+                        if header_text and len(header_text) == len(cols):
+                            for k, v in zip(header_text, cols):
+                                if k:
+                                    item[k] = v
+                        else:
+                            for i, v in enumerate(cols):
+                                item[f"col_{i+1}"] = v
+                        
+                        # Normalize the item
+                        normalized_item = self._normalize_permit_item(item)
+                        if normalized_item:
+                            permits.append(normalized_item)
+                    
+                    # Look for next page
+                    next_link = page.locator("text=Next >>").first
+                    if not next_link.is_visible():
+                        next_link = page.locator("text=Next >").first
+                    
+                    if not next_link.is_visible():
+                        logger.info("No more pages found")
+                        break
+                    
+                    logger.info("Clicking next page")
+                    next_link.click()
+                    page.wait_for_load_state("networkidle")
+                    time.sleep(0.6)  # Be polite
+                
+                return {
+                    "source_root": self.base_url,
+                    "query_params": {"begin": begin, "end": end},
+                    "pages": page_count,
+                    "count": len(permits),
+                    "items": permits,
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "method": "playwright",
+                    "success": True
+                }
+                
+            finally:
+                browser.close()
+    
+    def _find_date_fields(self, page) -> Optional[Tuple[str, str]]:
+        """Find the two input fields for Submitted Date begin and end."""
+        # Look for inputs near "Submitted Date" text
+        submitted_date_locator = page.locator("text=Submitted Date").first
+        if submitted_date_locator.is_visible():
+            # Find nearby inputs
+            inputs = page.locator("input[name*='submit'][name*='date']").all()
+            if len(inputs) >= 2:
+                names = []
+                for inp in inputs:
+                    name = inp.get_attribute("name")
+                    if name:
+                        names.append(name)
+                if len(names) >= 2:
+                    return (names[0], names[1])
+        
+        # Fallback: get all date-related inputs
+        inputs = page.locator("input[name*='submit'][name*='date']").all()
+        names = []
+        for inp in inputs:
+            name = inp.get_attribute("name")
+            if name:
+                names.append(name)
+        
+        if len(names) >= 2:
+            return (names[0], names[1])
+        
+        return None
+    
+    def _find_results_table(self, soup):
+        """Find the main results table."""
+        best = None
+        best_rows = 0
+        for tbl in soup.find_all("table"):
+            rows = tbl.find_all("tr")
+            if len(rows) > best_rows:
+                best = tbl
+                best_rows = len(rows)
+        return best if best_rows > 1 else None
+    
+    def _split_header_rows(self, rows):
+        """Return (header_cells, data_rows)."""
+        if not rows:
+            return [], []
+        # First row is header if it uses <th> or looks like a label row
+        ths = rows[0].find_all("th")
+        if ths:
+            return ths, rows[1:]
+        # Fallback: treat first row as header if all cells are labels
+        tds = rows[0].find_all("td")
+        if tds and all(td.get_text(strip=True) for td in tds):
+            return tds, rows[1:]
+        return [], rows
+    
+    def _normalize_permit_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Normalize a permit item to our database schema."""
+        try:
+            normalized = {}
+            
+            # Map RRC fields to our database schema
+            field_mapping = {
+                'Status Date': 'status_date',
+                'Status #': 'status',
+                'API No.': 'api_no',
+                'Operator Name/Number': 'operator',
+                'Lease Name': 'lease_name',
+                'Well #': 'well_id',
+                'Dist.': 'district',
+                'County': 'county',
+                'Wellbore Profile': 'wellbore_profile',
+                'Filing Purpose': 'filing_purpose',
+                'Amend': 'amended',
+                'Total Depth': 'total_depth',
+                'Stacked Lateral Parent Well DP': 'stacked_parent',
+                'Current Queue': 'current_queue'
+            }
+            
+            # Apply field mapping
+            for rrc_field, db_field in field_mapping.items():
+                if rrc_field in item:
+                    value = item[rrc_field]
+                    if value and str(value).strip():
+                        normalized[db_field] = str(value).strip()
+                    else:
+                        normalized[db_field] = None
+                else:
+                    normalized[db_field] = None
+            
+            # Only return if we have meaningful data
+            if any(v for v in normalized.values() if v):
+                return normalized
+            else:
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Error normalizing permit item: {e}")
+            return None
+
+
+class RRCW1Client:
+    """
+    Main client for RRC W-1 scraping with dual engine support.
+    Tries RequestsEngine first, falls back to PlaywrightEngine on login redirect.
+    """
+    
+    def __init__(self, base_url: str = "https://webapps.rrc.state.tx.us"):
+        self.base_url = base_url
+        self.timeout = int(os.getenv('SCRAPE_TIMEOUT_SECONDS', '30'))
+        
+        # Check if specific engine is requested
+        engine_preference = os.getenv('SCRAPER_ENGINE', '').lower()
+        if engine_preference == 'playwright':
+            self.primary_engine = 'playwright'
+        else:
+            self.primary_engine = 'requests'
+        
+        logger.info(f"RRCW1Client initialized with primary engine: {self.primary_engine}")
+    
+    def fetch_all(self, begin: str, end: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Fetch all permits using the best available engine.
+        
+        Args:
+            begin: Start date in MM/DD/YYYY format
+            end: End date in MM/DD/YYYY format
+            max_pages: Maximum number of pages to fetch (None for all)
+            
+        Returns:
+            Dictionary with query results and metadata
+        """
+        logger.info(f"Starting RRC W-1 search: {begin} to {end}, max_pages={max_pages}")
+        
+        # Try primary engine first
+        if self.primary_engine == 'requests':
+            try:
+                engine = RequestsEngine(self.base_url, self.timeout)
+                result = engine.fetch_all(begin, end, max_pages)
+                logger.info(f"RequestsEngine completed successfully: {result['count']} permits")
+                return result
+            except EngineRedirectToLogin as e:
+                logger.warning(f"RequestsEngine redirected to login: {e}")
+                logger.info("Falling back to PlaywrightEngine")
+            except Exception as e:
+                logger.warning(f"RequestsEngine failed: {e}")
+                logger.info("Falling back to PlaywrightEngine")
+        
+        # Fallback to PlaywrightEngine
+        try:
+            engine = PlaywrightEngine(self.base_url, self.timeout * 1000)  # Convert to milliseconds
+            result = engine.fetch_all(begin, end, max_pages)
+            logger.info(f"PlaywrightEngine completed successfully: {result['count']} permits")
+            return result
+        except Exception as e:
+            logger.error(f"PlaywrightEngine failed: {e}")
+            return {
+                "source_root": self.base_url,
+                "query_params": {"begin": begin, "end": end},
+                "pages": 0,
+                "count": 0,
+                "items": [],
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "error": str(e),
+                "success": False
+            }

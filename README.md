@@ -66,3 +66,13 @@ You can also use the provided migration script for convenience:
 ```bash
 python tools/migrate.py
 ```
+
+## Playwright Setup
+
+The scraper uses Playwright as a fallback engine for complex form interactions. To install Playwright browsers:
+
+```bash
+python -m playwright install --with-deps chromium
+```
+
+This installs Chromium and its dependencies for browser automation.
