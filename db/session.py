@@ -19,7 +19,12 @@ if not DATABASE_URL:
         "Example: postgresql://user:password@localhost:5432/permitdb"
     )
 
+# Convert postgresql:// to postgresql+psycopg:// for psycopg v3 compatibility
+if DATABASE_URL.startswith('postgresql://'):
+    DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
+
 # Create engine with connection pooling
+# Use psycopg dialect for psycopg v3 compatibility
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,  # Verify connections before use
