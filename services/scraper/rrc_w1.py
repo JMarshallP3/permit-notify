@@ -308,18 +308,18 @@ class RequestsEngine:
             # Map RRC fields to our database schema
             field_mapping = {
                 'Status Date': 'status_date',
-                'Status #': 'status',
+                'Status #': 'status_no',
                 'API No.': 'api_no',
-                'Operator Name/Number': 'operator',
+                'Operator Name/Number': 'operator_name',
                 'Lease Name': 'lease_name',
-                'Well #': 'well_id',
+                'Well #': 'well_no',
                 'Dist.': 'district',
                 'County': 'county',
                 'Wellbore Profile': 'wellbore_profile',
                 'Filing Purpose': 'filing_purpose',
-                'Amend': 'amended',
+                'Amend': 'amend',
                 'Total Depth': 'total_depth',
-                'Stacked Lateral Parent Well DP': 'stacked_parent',
+                'Stacked Lateral Parent Well DP': 'stacked_lateral_parent_well_dp',
                 'Current Queue': 'current_queue'
             }
             
@@ -570,18 +570,18 @@ class PlaywrightEngine:
             # Map RRC fields to our database schema
             field_mapping = {
                 'Status Date': 'status_date',
-                'Status #': 'status',
+                'Status #': 'status_no',
                 'API No.': 'api_no',
-                'Operator Name/Number': 'operator',
+                'Operator Name/Number': 'operator_name',
                 'Lease Name': 'lease_name',
-                'Well #': 'well_id',
+                'Well #': 'well_no',
                 'Dist.': 'district',
                 'County': 'county',
                 'Wellbore Profile': 'wellbore_profile',
                 'Filing Purpose': 'filing_purpose',
-                'Amend': 'amended',
+                'Amend': 'amend',
                 'Total Depth': 'total_depth',
-                'Stacked Lateral Parent Well DP': 'stacked_parent',
+                'Stacked Lateral Parent Well DP': 'stacked_lateral_parent_well_dp',
                 'Current Queue': 'current_queue'
             }
             
