@@ -6,6 +6,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
 from services.scraper.scraper import Scraper
 from services.scraper.rrc_w1 import RRCW1Client, EngineRedirectToLogin
+from services.enrichment.worker import EnrichmentWorker, run_once
+from services.enrichment.detail_parser import parse_detail_page
+from services.enrichment.pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
+from db.models import Permit
 from db.session import Base, engine
 from db.repo import upsert_permits, get_recent_permits
 
@@ -22,6 +26,9 @@ scraper_instance = Scraper()
 
 # Create a single RRCW1Client instance for reuse
 rrc_w1_client = RRCW1Client()
+
+# Create a single EnrichmentWorker instance for reuse
+enrichment_worker = EnrichmentWorker()
 
 # Include the API routes
 app.include_router(api_router, prefix="/api/v1")
@@ -167,6 +174,173 @@ async def w1_search(
         raise HTTPException(
             status_code=502,
             detail=f"RRC W-1 search failed: {str(e)}"
+        )
+
+@app.post("/enrich/run")
+async def run_enrichment(n: int = Query(5, ge=1, le=50, description="Maximum number of permits to process")):
+    """
+    Run the enrichment worker for N permits.
+    
+    Args:
+        n: Maximum number of permits to process (1-50)
+        
+    Returns:
+        Dictionary with enrichment results
+    """
+    try:
+        logger.info(f"Starting enrichment for {n} permits")
+        
+        # Run the enrichment worker
+        results = run_once(limit=n)
+        
+        logger.info(f"Enrichment completed: {results['processed']} processed, "
+                   f"{results['successful']} successful, {results['failed']} failed")
+        
+        return {
+            "processed": results['processed'],
+            "ok": results['successful'],
+            "errors": results['failed']
+        }
+        
+    except Exception as e:
+        logger.error(f"Enrichment error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Enrichment failed: {str(e)}"
+        )
+
+@app.get("/enrich/debug/{permit_id}")
+async def debug_enrichment(permit_id: int):
+    """
+    Debug endpoint to test enrichment parsing for a specific permit.
+    Fetches detail page and PDF (if available) without writing to database.
+    
+    Args:
+        permit_id: ID of the permit to debug
+        
+    Returns:
+        Dictionary with parsed data for debugging
+    """
+    try:
+        logger.info(f"Debug enrichment for permit ID: {permit_id}")
+        
+        # Load permit from database
+        from db.session import get_session
+        with get_session() as session:
+            permit = session.query(Permit).filter(Permit.id == permit_id).first()
+            if not permit:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Permit with ID {permit_id} not found"
+                )
+            
+            # Check if permit has detail URL
+            if not permit.detail_url:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Permit {permit_id} has no detail URL"
+                )
+        
+        # Use enrichment worker to fetch data (but don't update DB)
+        worker = EnrichmentWorker()
+        
+        # Fetch detail page
+        logger.info(f"Fetching detail page: {permit.detail_url}")
+        detail_response = worker._make_request(permit.detail_url)
+        
+        if not detail_response:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to fetch detail page"
+            )
+        
+        # Parse detail page
+        detail_data = parse_detail_page(detail_response.text, permit.detail_url)
+        
+        result = {
+            "permit_id": permit.id,
+            "status_no": permit.status_no,
+            "detail_url": permit.detail_url,
+            "parsed_data": detail_data,
+            "pdf_data": None,
+            "error": None
+        }
+        
+        # If PDF URL found, fetch and parse it
+        if detail_data.get('view_w1_pdf_url'):
+            logger.info(f"Fetching PDF: {detail_data['view_w1_pdf_url']}")
+            
+            pdf_response = worker._make_request(
+                detail_data['view_w1_pdf_url'],
+                referer=permit.detail_url
+            )
+            
+            if pdf_response:
+                try:
+                    # Extract text from PDF
+                    pdf_text = extract_text_from_pdf(pdf_response.content)
+                    
+                    if pdf_text:
+                        # Parse reservoir well count
+                        well_count, confidence, snippet = parse_reservoir_well_count(pdf_text)
+                        
+                        result["pdf_data"] = {
+                            "reservoir_well_count": well_count,
+                            "confidence": confidence,
+                            "text_snippet": snippet,
+                            "pdf_url": detail_data['view_w1_pdf_url'],
+                            "text_length": len(pdf_text)
+                        }
+                    else:
+                        result["pdf_data"] = {
+                            "error": "No text extracted from PDF",
+                            "pdf_url": detail_data['view_w1_pdf_url']
+                        }
+                        
+                except Exception as e:
+                    result["pdf_data"] = {
+                        "error": f"PDF processing error: {str(e)}",
+                        "pdf_url": detail_data['view_w1_pdf_url']
+                    }
+            else:
+                result["pdf_data"] = {
+                    "error": "Failed to download PDF",
+                    "pdf_url": detail_data['view_w1_pdf_url']
+                }
+        
+        # Calculate confidence score for debugging
+        confidence = 0.0
+        if detail_data.get('horizontal_wellbore'): confidence += 0.3
+        if detail_data.get('field_name'): confidence += 0.3
+        if detail_data.get('acres') is not None: confidence += 0.2
+        if result.get('pdf_data', {}).get('reservoir_well_count') is not None: confidence += 0.3
+        confidence = min(confidence, 1.0)
+        
+        result["debug_info"] = {
+            "confidence": confidence,
+            "fields_found": {
+                "horizontal_wellbore": bool(detail_data.get('horizontal_wellbore')),
+                "field_name": bool(detail_data.get('field_name')),
+                "acres": detail_data.get('acres') is not None,
+                "section": bool(detail_data.get('section')),
+                "block": bool(detail_data.get('block')),
+                "survey": bool(detail_data.get('survey')),
+                "abstract_no": bool(detail_data.get('abstract_no')),
+                "reservoir_well_count": result.get('pdf_data', {}).get('reservoir_well_count') is not None
+            }
+        }
+        
+        logger.info(f"Debug enrichment completed for permit {permit_id}: confidence={confidence:.2f}")
+        return result
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Debug enrichment error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Debug enrichment failed: {str(e)}"
         )
 
 if __name__ == "__main__":

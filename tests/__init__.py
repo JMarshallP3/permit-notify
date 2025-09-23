@@ -1,3 +1,1 @@
-"""
-Test package for permit-notify application.
-"""
+# Tests package

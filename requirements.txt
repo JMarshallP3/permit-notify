@@ -23,7 +23,6 @@ http_ece==1.2.1
 idna==3.10
 itsdangerous==2.2.0
 Jinja2==3.1.6
-lxml==4.9.3
 MarkupSafe==3.0.2
 multidict==6.6.4
 outcome==1.3.0.post0
@@ -40,7 +39,7 @@ python-dotenv==1.1.1
 pytz==2025.2
 pywebpush==1.14.0
 requests==2.31.0
-lxml>=4.9.0
+lxml>=5.2.1
 six==1.17.0
 sniffio==1.3.1
 sortedcontainers==2.4.0
@@ -64,3 +63,4 @@ pytest==7.4.3
 psycopg[binary]>=3.1.0
 alembic>=1.12
 playwright>=1.47.0
+pdfminer.six>=20221105

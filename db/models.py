@@ -4,6 +4,7 @@ Updated to match RRC W-1 Search Results columns.
 """
 
 import datetime
+import sqlalchemy as sa
 from sqlalchemy import Column, Integer, String, Date, DateTime, Index, Boolean, Numeric
 from sqlalchemy.sql import func
 from .session import Base
@@ -41,6 +42,24 @@ class Permit(Base):
     # Legacy fields (keeping for backward compatibility)
     submission_date = Column(Date, nullable=True)  # Legacy field (same as status_date)
     
+    # HTML detail page fields
+    horizontal_wellbore = sa.Column(sa.Text)  # Horizontal Wellbore
+    field_name = sa.Column(sa.Text)  # Field Name
+    acres = sa.Column(sa.Numeric(12,2))  # Acres
+    section = sa.Column(sa.Text)  # Section
+    block = sa.Column(sa.Text)  # Block
+    survey = sa.Column(sa.Text)  # Survey
+    abstract_no = sa.Column(sa.Text)  # Abstract Number
+    detail_url = sa.Column(sa.Text)  # Detail URL
+    
+    # PDF fields & bookkeeping
+    reservoir_well_count = sa.Column(sa.Integer)  # Reservoir Well Count
+    w1_pdf_url = sa.Column(sa.Text)  # W-1 PDF URL
+    w1_parse_status = sa.Column(sa.Text)  # W-1 Parse Status (ok, no_pdf, download_error, parse_error)
+    w1_parse_confidence = sa.Column(sa.Numeric)  # W-1 Parse Confidence
+    w1_text_snippet = sa.Column(sa.Text)  # W-1 Text Snippet
+    w1_last_enriched_at = sa.Column(sa.DateTime(timezone=True))  # W-1 Last Enriched At
+    
     # Metadata
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
@@ -77,6 +96,23 @@ class Permit(Base):
             'current_queue': self.current_queue,
             # Legacy fields
             'submission_date': self.submission_date.isoformat() if self.submission_date else None,
+            # HTML detail page fields
+            'horizontal_wellbore': self.horizontal_wellbore,
+            'field_name': self.field_name,
+            'acres': float(self.acres) if self.acres else None,
+            'section': self.section,
+            'block': self.block,
+            'survey': self.survey,
+            'abstract_no': self.abstract_no,
+            'detail_url': self.detail_url,
+            # PDF fields & bookkeeping
+            'reservoir_well_count': self.reservoir_well_count,
+            'w1_pdf_url': self.w1_pdf_url,
+            'w1_parse_status': self.w1_parse_status,
+            'w1_parse_confidence': float(self.w1_parse_confidence) if self.w1_parse_confidence else None,
+            'w1_text_snippet': self.w1_text_snippet,
+            'w1_last_enriched_at': self.w1_last_enriched_at.isoformat() if self.w1_last_enriched_at else None,
+            # Metadata
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

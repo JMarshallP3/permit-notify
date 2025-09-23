@@ -123,10 +123,11 @@ def parse_results_well_numbers(html: str) -> List[Dict[str, str]]:
         total_depth = cells[depth_idx].get_text(" ", strip=True) if depth_idx is not None else ""
         current_queue = cells[queue_idx].get_text(" ", strip=True) if queue_idx is not None else ""
 
-        # Get detail link
+        # Get detail link and normalize to absolute URL
         lease_link = None
         if lease_idx is not None and cells[lease_idx].find("a"):
-            lease_link = cells[lease_idx].find("a").get("href")
+            href = cells[lease_idx].find("a").get("href")
+            lease_link = normalize_rrc_link(href)
 
         # Only include rows with meaningful data
         if status_no or api_number or operator_name:
