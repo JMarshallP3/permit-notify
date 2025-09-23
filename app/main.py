@@ -30,9 +30,13 @@ app.include_router(api_router, prefix="/api/v1")
 async def startup_event():
     """Initialize database tables on startup."""
     try:
-        logger.info("Skipping database initialization for testing...")
-        # Base.metadata.create_all(bind=engine)
-        logger.info("Database initialization skipped")
+        # Check if we're in Railway environment
+        if os.getenv('RAILWAY_ENVIRONMENT'):
+            logger.info("Running in Railway environment - enabling database operations")
+            # Base.metadata.create_all(bind=engine)
+            logger.info("Database initialization completed")
+        else:
+            logger.info("Running locally - database operations disabled for testing")
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
         # Don't raise - just log the error
@@ -79,14 +83,23 @@ async def scrape():
 async def get_permits(limit: int = Query(50, ge=1, le=1000)):
     """Get recent permits from database."""
     try:
-        # Skip database query for testing
-        logger.info("Database query disabled for testing")
-        return {
-            "permits": [],
-            "count": 0,
-            "limit": limit,
-            "note": "Database query disabled for testing"
-        }
+        # Check if we're in Railway environment
+        if os.getenv('RAILWAY_ENVIRONMENT'):
+            logger.info("Running in Railway environment - enabling database queries")
+            permits = get_recent_permits(limit)
+            return {
+                "permits": permits,
+                "count": len(permits),
+                "limit": limit
+            }
+        else:
+            logger.info("Running locally - database query disabled for testing")
+            return {
+                "permits": [],
+                "count": 0,
+                "limit": limit,
+                "note": "Database query disabled for testing"
+            }
     except Exception as e:
         logger.error(f"Database query error: {e}")
         return {"error": str(e), "permits": []}
@@ -123,10 +136,16 @@ async def w1_search(
         # Fetch results using RRCW1Client
         result = rrc_w1_client.fetch_all(begin, end, pages)
         
-        # Skip database storage for testing
+        # Store results in database if we have items
         if result.get("items"):
-            logger.info(f"Found {len(result['items'])} permits (database storage disabled for testing)")
-            result["database"] = {"inserted": 0, "updated": 0, "note": "Database storage disabled for testing"}
+            if os.getenv('RAILWAY_ENVIRONMENT'):
+                logger.info(f"Running in Railway environment - storing {len(result['items'])} permits in database")
+                upsert_result = upsert_permits(result["items"])
+                result["database"] = upsert_result
+                logger.info(f"Stored {upsert_result['inserted']} new permits, updated {upsert_result['updated']} permits")
+            else:
+                logger.info(f"Found {len(result['items'])} permits (database storage disabled for testing)")
+                result["database"] = {"inserted": 0, "updated": 0, "note": "Database storage disabled for testing"}
         else:
             result["database"] = {"inserted": 0, "updated": 0, "note": "No permits found"}
             logger.info("No permits found")
