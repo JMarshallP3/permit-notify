@@ -51,7 +51,8 @@ class RRCW1Client:
                 from playwright.sync_api import sync_playwright
                 logger.info("Starting Playwright initialization...")
                 
-                self._playwright = sync_playwright()
+                # Get the actual Playwright object from the context manager
+                self._playwright = sync_playwright().__enter__()
                 logger.info("Playwright context created")
                 
                 self._browser = self._playwright.chromium.launch(
@@ -91,6 +92,7 @@ class RRCW1Client:
             if self._browser:
                 self._browser.close()
             if self._playwright:
+                # Properly exit the context manager
                 self._playwright.__exit__(None, None, None)
         except:
             pass
