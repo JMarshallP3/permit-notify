@@ -140,6 +140,12 @@ class RRCW1Client:
         form = soup.find("form")
         if not form:
             raise RRCScrapeError("Could not locate the query form on the page.")
+        
+        # Debug: Log page title and form info
+        title = soup.find("title")
+        logger.info(f"Page title: {title.get_text() if title else 'No title found'}")
+        logger.info(f"Form action: {form.get('action', 'No action')}")
+        logger.info(f"Form method: {form.get('method', 'No method')}")
 
         # Build form payload from existing inputs so we include required hidden fields.
         form_data = {}
@@ -164,9 +170,17 @@ class RRCW1Client:
 
         # 2) POST the form to get page 1 of results
         logger.info(f"Submitting form to: {action_url}")
+        logger.info(f"Form data keys: {list(form_data.keys())}")
+        logger.info(f"Date fields: submittedDateFrom={form_data.get('submittedDateFrom')}, submittedDateTo={form_data.get('submittedDateTo')}")
+        
         r = s.post(action_url, data=form_data, timeout=self.timeout)
         if r.status_code != 200:
             raise RRCScrapeError(f"Initial POST failed: HTTP {r.status_code}")
+        
+        # Debug: Log response page title
+        response_soup = BeautifulSoup(r.text, "lxml")
+        response_title = response_soup.find("title")
+        logger.info(f"Response page title: {response_title.get_text() if response_title else 'No title found'}")
 
         permits: List[Dict] = []
         page_html = r.text
