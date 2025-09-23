@@ -451,7 +451,7 @@ class PlaywrightEngine:
             Dictionary with query results and metadata
         """
         try:
-            from playwright.sync_api import sync_playwright
+            from playwright import sync_playwright
         except ImportError as e:
             raise Exception(
                 "Playwright not installed or browser binaries missing. "

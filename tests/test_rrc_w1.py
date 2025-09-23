@@ -4,7 +4,7 @@ Simple test for RRC W-1 scraper functionality.
 
 import pytest
 from unittest.mock import patch, MagicMock
-from services.scraper.rrc_w1 import RRCW1Client
+from services.scraper.rrc_w1 import RRCW1Client, RequestsEngine, PlaywrightEngine
 
 
 class TestRRCW1Client:
@@ -14,168 +14,169 @@ class TestRRCW1Client:
         """Test that RRCW1Client initializes correctly."""
         client = RRCW1Client()
         
-        assert client.base_url == "https://webapps.rrc.state.tx.us/DP"
-        assert client.timeout == 20
-        assert "PermitTrackerBot" in client.user_agent
-        assert client.session.headers["User-Agent"] == client.user_agent
+        assert client.base_url == "https://webapps.rrc.state.tx.us"
+        assert client.timeout == 30  # Default from environment
+        assert client.primary_engine == 'requests'  # Default engine
     
     def test_client_with_custom_params(self):
         """Test RRCW1Client with custom parameters."""
-        client = RRCW1Client(
-            base_url="https://test.example.com",
-            timeout=30,
-            user_agent="TestBot/1.0"
-        )
+        client = RRCW1Client(base_url="https://test.example.com")
         
         assert client.base_url == "https://test.example.com"
-        assert client.timeout == 30
-        assert client.user_agent == "TestBot/1.0"
+        assert client.timeout == 30  # Still uses environment default
     
-    @patch('requests.Session.get')
-    def test_get_request(self, mock_get):
-        """Test _get method with relative URL."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_get.return_value = mock_response
+    @patch('services.scraper.rrc_w1.RequestsEngine')
+    def test_fetch_all_requests_engine_success(self, mock_requests_engine):
+        """Test fetch_all method using RequestsEngine successfully."""
+        # Mock the engine and its fetch_all method
+        mock_engine_instance = MagicMock()
+        mock_engine_instance.fetch_all.return_value = {
+            "source_root": "https://webapps.rrc.state.tx.us",
+            "query_params": {"begin": "01/01/2024", "end": "01/31/2024"},
+            "pages": 1,
+            "count": 5,
+            "items": [
+                {"status_no": "12345", "operator_name": "Test Oil Co"},
+                {"status_no": "12346", "operator_name": "Test Oil Co 2"}
+            ],
+            "fetched_at": "2024-01-15T10:00:00Z",
+            "method": "requests",
+            "success": True
+        }
+        mock_requests_engine.return_value = mock_engine_instance
         
         client = RRCW1Client()
-        response = client._get("/test/path")
+        result = client.fetch_all("01/01/2024", "01/31/2024")
         
-        assert response == mock_response
-        mock_get.assert_called_once()
+        assert result["success"] is True
+        assert result["count"] == 5
+        assert result["method"] == "requests"
+        assert len(result["items"]) == 2
+        mock_requests_engine.assert_called_once()
+        mock_engine_instance.fetch_all.assert_called_once_with("01/01/2024", "01/31/2024", None)
     
-    @patch('requests.Session.post')
-    def test_post_request(self, mock_post):
-        """Test _post method with form data."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_post.return_value = mock_response
+    @patch('services.scraper.rrc_w1.PlaywrightEngine')
+    @patch('services.scraper.rrc_w1.RequestsEngine')
+    def test_fetch_all_fallback_to_playwright(self, mock_requests_engine, mock_playwright_engine):
+        """Test fetch_all method falling back to PlaywrightEngine when RequestsEngine fails."""
+        from services.scraper.rrc_w1 import EngineRedirectToLogin
+        
+        # Mock RequestsEngine to raise EngineRedirectToLogin
+        mock_requests_instance = MagicMock()
+        mock_requests_instance.fetch_all.side_effect = EngineRedirectToLogin("Redirected to login")
+        mock_requests_engine.return_value = mock_requests_instance
+        
+        # Mock PlaywrightEngine to succeed
+        mock_playwright_instance = MagicMock()
+        mock_playwright_instance.fetch_all.return_value = {
+            "source_root": "https://webapps.rrc.state.tx.us",
+            "query_params": {"begin": "01/01/2024", "end": "01/31/2024"},
+            "pages": 1,
+            "count": 3,
+            "items": [
+                {"status_no": "12347", "operator_name": "Test Oil Co 3"}
+            ],
+            "fetched_at": "2024-01-15T10:00:00Z",
+            "method": "playwright",
+            "success": True
+        }
+        mock_playwright_engine.return_value = mock_playwright_instance
         
         client = RRCW1Client()
-        response = client._post("/test/path", {"field": "value"})
+        result = client.fetch_all("01/01/2024", "01/31/2024")
         
-        assert response == mock_response
-        mock_post.assert_called_once()
+        assert result["success"] is True
+        assert result["count"] == 3
+        assert result["method"] == "playwright"
+        assert len(result["items"]) == 1
+        
+        # Verify both engines were called
+        mock_requests_engine.assert_called_once()
+        mock_playwright_engine.assert_called_once()
     
-    def test_soup_parsing(self):
-        """Test _soup method."""
-        client = RRCW1Client()
-        html = "<html><body><h1>Test</h1></body></html>"
+    @patch('services.scraper.rrc_w1.PlaywrightEngine')
+    @patch('services.scraper.rrc_w1.RequestsEngine')
+    def test_fetch_all_both_engines_fail(self, mock_requests_engine, mock_playwright_engine):
+        """Test fetch_all method when both engines fail."""
+        # Mock both engines to fail
+        mock_requests_instance = MagicMock()
+        mock_requests_instance.fetch_all.side_effect = Exception("Requests engine failed")
+        mock_requests_engine.return_value = mock_requests_instance
         
-        soup = client._soup(html)
-        
-        assert soup.find('h1').get_text() == "Test"
-    
-    def test_infer_submitted_date_names_success(self):
-        """Test successful date field name inference with RRC W-1 field names."""
-        html = """
-        <html>
-            <body>
-                <form>
-                    <label>Submitted Date:</label>
-                    <input type="text" name="submitStart" />
-                    <input type="text" name="submitEnd" />
-                </form>
-            </body>
-        </html>
-        """
+        mock_playwright_instance = MagicMock()
+        mock_playwright_instance.fetch_all.side_effect = Exception("Playwright engine failed")
+        mock_playwright_engine.return_value = mock_playwright_instance
         
         client = RRCW1Client()
-        soup = client._soup(html)
+        result = client.fetch_all("01/01/2024", "01/31/2024")
         
-        begin_name, end_name = client._infer_submitted_date_names(soup)
-        
-        assert begin_name == "submitStart"
-        assert end_name == "submitEnd"
+        assert result["success"] is False
+        assert result["count"] == 0
+        assert "error" in result
+        assert "Playwright engine failed" in result["error"]
     
-    def test_infer_submitted_date_names_fallback(self):
-        """Test date field name inference with fallback strategy."""
-        html = """
-        <html>
-            <body>
-                <form>
-                    <input type="text" name="dateFrom" />
-                    <input type="text" name="dateTo" />
-                </form>
-            </body>
-        </html>
-        """
-        
-        client = RRCW1Client()
-        soup = client._soup(html)
-        
-        begin_name, end_name = client._infer_submitted_date_names(soup)
-        
-        assert begin_name == "dateFrom"
-        assert end_name == "dateTo"
+    def test_fetch_all_with_max_pages(self):
+        """Test fetch_all method with max_pages parameter."""
+        with patch('services.scraper.rrc_w1.RequestsEngine') as mock_requests_engine:
+            mock_engine_instance = MagicMock()
+            mock_engine_instance.fetch_all.return_value = {
+                "source_root": "https://webapps.rrc.state.tx.us",
+                "query_params": {"begin": "01/01/2024", "end": "01/31/2024"},
+                "pages": 2,
+                "count": 10,
+                "items": [],
+                "fetched_at": "2024-01-15T10:00:00Z",
+                "method": "requests",
+                "success": True
+            }
+            mock_requests_engine.return_value = mock_engine_instance
+            
+            client = RRCW1Client()
+            result = client.fetch_all("01/01/2024", "01/31/2024", max_pages=2)
+            
+            assert result["success"] is True
+            mock_engine_instance.fetch_all.assert_called_once_with("01/01/2024", "01/31/2024", 2)
+
+
+class TestRequestsEngine:
+    """Test cases for RequestsEngine."""
     
-    def test_parse_table_success(self):
-        """Test successful table parsing."""
-        html = """
-        <html>
-            <body>
-                <table>
-                    <tr>
-                        <th>Status Date</th>
-                        <th>Status</th>
-                        <th>API No.</th>
-                        <th>Operator</th>
-                    </tr>
-                    <tr>
-                        <td>01/15/2024</td>
-                        <td>12345</td>
-                        <td>42-000-00001</td>
-                        <td>Test Oil Co</td>
-                    </tr>
-                </table>
-            </body>
-        </html>
-        """
+    def test_requests_engine_initialization(self):
+        """Test that RequestsEngine initializes correctly."""
+        engine = RequestsEngine()
         
-        client = RRCW1Client()
-        soup = client._soup(html)
-        
-        rows = client._parse_table(soup)
-        
-        assert len(rows) == 1
-        assert rows[0]["status_date"] == "01/15/2024"
-        assert rows[0]["status"] == "12345"
-        assert rows[0]["api_no"] == "42-000-00001"
-        assert rows[0]["operator"] == "Test Oil Co"
+        assert engine.base_url == "https://webapps.rrc.state.tx.us"
+        assert engine.dp_base == "https://webapps.rrc.state.tx.us/DP"
+        assert engine.timeout == 30
+        assert "PermitTrackerBot" in engine.user_agent
     
-    def test_next_page_url_found(self):
-        """Test next page URL detection."""
-        html = """
-        <html>
-            <body>
-                <a href="next_page.html">Next ></a>
-            </body>
-        </html>
-        """
+    def test_requests_engine_with_custom_params(self):
+        """Test RequestsEngine with custom parameters."""
+        engine = RequestsEngine(base_url="https://test.example.com", timeout=60)
         
-        client = RRCW1Client()
-        soup = client._soup(html)
-        
-        next_url = client._next_page_url(soup, "https://test.com/current")
-        
-        assert next_url == "https://test.com/next_page.html"
+        assert engine.base_url == "https://test.example.com"
+        assert engine.dp_base == "https://test.example.com/DP"
+        assert engine.timeout == 60
+
+
+class TestPlaywrightEngine:
+    """Test cases for PlaywrightEngine."""
     
-    def test_next_page_url_not_found(self):
-        """Test when no next page URL is found."""
-        html = """
-        <html>
-            <body>
-                <p>No pagination links</p>
-            </body>
-        </html>
-        """
+    def test_playwright_engine_initialization(self):
+        """Test that PlaywrightEngine initializes correctly."""
+        engine = PlaywrightEngine()
         
-        client = RRCW1Client()
-        soup = client._soup(html)
+        assert engine.base_url == "https://webapps.rrc.state.tx.us"
+        assert engine.dp_base == "https://webapps.rrc.state.tx.us/DP"
+        assert engine.timeout == 30000  # Default timeout in milliseconds
+    
+    def test_playwright_engine_with_custom_params(self):
+        """Test PlaywrightEngine with custom parameters."""
+        engine = PlaywrightEngine(base_url="https://test.example.com", timeout=60000)
         
-        next_url = client._next_page_url(soup, "https://test.com/current")
-        
-        assert next_url is None
+        assert engine.base_url == "https://test.example.com"
+        assert engine.dp_base == "https://test.example.com/DP"
+        assert engine.timeout == 60000
 
 
 if __name__ == "__main__":
