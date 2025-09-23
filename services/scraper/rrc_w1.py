@@ -138,6 +138,8 @@ class RequestsEngine:
         page_count = 0
         global_header_text = None  # Store header from first page
         
+        current_url = None  # Track current URL to detect loops
+        
         while True:
             page_count += 1
             if max_pages and page_count > max_pages:
@@ -146,59 +148,17 @@ class RequestsEngine:
             
             page_soup = BeautifulSoup(page_html, "lxml")
             
-            # Parse the table
-            table = self._find_results_table(page_soup)
-            if not table:
+            # Use the new RRC results parser for better well number extraction
+            from .parsers.rrc_results import parse_results_well_numbers
+            
+            page_permits = parse_results_well_numbers(page_html)
+            if page_permits:
+                permits.extend(page_permits)
+                logger.info(f"Page {page_count}: Added {len(page_permits)} permits with improved well number extraction")
+            else:
                 if not permits:
                     raise Exception("No results table found. Check date range or form fields.")
                 break
-            
-            # Extract rows
-            rows = table.find_all("tr")
-            header, data_rows = self._split_header_rows(rows)
-            header_text = [c.get_text(strip=True) for c in header]
-            
-            # Use global header if current page doesn't have one
-            if not header_text and global_header_text:
-                header_text = global_header_text
-                logger.info(f"Using global header for page {page_count}")
-            elif header_text:
-                global_header_text = header_text
-                logger.info(f"Stored global header from page {page_count}")
-            
-            logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
-            logger.info(f"Header text: {header_text}")
-            
-            for i, tr in enumerate(data_rows):
-                cols = [c.get_text(separator=" ", strip=True) for c in tr.find_all(["td", "th"])]
-                if not cols or all(not c for c in cols):
-                    logger.debug(f"Skipping empty row {i+1}")
-                    continue
-                
-                # Skip rows that contain navigation or page info
-                if any(nav_text in ' '.join(cols) for nav_text in ['Search W1', 'Results', 'Searched for:', 'Click on lease name', 'Next', 'Page:']):
-                    logger.debug(f"Skipping navigation row {i+1}: {cols}")
-                    continue
-                
-                # Build a dict keyed by header
-                item = {}
-                if header_text and len(header_text) == len(cols):
-                    for k, v in zip(header_text, cols):
-                        if k:
-                            item[k] = v
-                else:
-                    for j, v in enumerate(cols):
-                        item[f"col_{j+1}"] = v
-                
-                logger.debug(f"Row {i+1}: {item}")
-                
-                # Normalize the item
-                normalized_item = self._normalize_permit_item(item)
-                if normalized_item:
-                    permits.append(normalized_item)
-                    logger.debug(f"Added permit: {normalized_item}")
-                else:
-                    logger.debug(f"Skipped row {i+1} - no meaningful data")
             
             # Find next page
             next_href = self._find_next_link(page_soup)
@@ -206,7 +166,24 @@ class RequestsEngine:
                 logger.info("No more pages found")
                 break
             
-            next_url = next_href if next_href.startswith("http") else f"{self.dp_base}/{next_href.lstrip('/')}"
+            # Fix pagination URL - remove duplicate /DP/ if present
+            if next_href.startswith("http"):
+                next_url = next_href
+            else:
+                # Remove leading slash and fix duplicate /DP/ paths
+                clean_href = next_href.lstrip('/')
+                if clean_href.startswith('DP/'):
+                    # If href already starts with DP/, use base_url instead of dp_base
+                    next_url = f"{self.base_url}/{clean_href}"
+                else:
+                    next_url = f"{self.dp_base}/{clean_href}"
+            
+            # Check for pagination loop - if we're going to the same URL, stop
+            if current_url and next_url == current_url:
+                logger.info(f"Pagination loop detected - same URL: {next_url}")
+                break
+            
+            current_url = next_url
             logger.info(f"Following next page: {next_url}")
             
             time.sleep(0.6)  # Be polite
@@ -310,6 +287,25 @@ class RequestsEngine:
         
         return [], rows
     
+    def _is_header_row(self, item: Dict[str, Any]) -> bool:
+        """Check if an item is a header row."""
+        # Check if the item contains header text
+        header_indicators = ['Status Date', 'Status #', 'API No.', 'Operator Name/Number', 'Lease Name', 'Well #', 'Dist.', 'County', 'Wellbore Profile', 'Filing Purpose', 'Amend', 'Total Depth', 'Stacked Lateral Parent Well DP', 'Current Queue']
+        
+        # Check if any values in the item match header indicators
+        for value in item.values():
+            if value and str(value) in header_indicators:
+                return True
+        
+        # Check if the item has the characteristic pattern of a header row
+        # (e.g., status_date = "Status Date", api_no = "API No.", etc.)
+        if (item.get('status_date') == 'Status Date' and 
+            item.get('api_no') == 'API No.' and 
+            item.get('operator_name') == 'Operator Name/Number'):
+            return True
+        
+        return False
+    
     def _find_next_link(self, soup) -> Optional[str]:
         """Find the 'Next' pagination link."""
         for a in soup.find_all("a", href=True):
@@ -335,6 +331,11 @@ class RequestsEngine:
     def _normalize_permit_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Normalize a permit item to our database schema."""
         try:
+            # Check if this is a header row and skip it
+            if self._is_header_row(item):
+                logger.debug("Skipping header row")
+                return None
+            
             normalized = {}
             
             # Map RRC fields to our database schema
@@ -363,7 +364,26 @@ class RequestsEngine:
                 if rrc_field in item:
                     value = item[rrc_field]
                     if value and str(value).strip():
-                        normalized[db_field] = str(value).strip()
+                        # Special handling for specific fields
+                        if db_field == 'amend':
+                            # Convert amend field to boolean
+                            amend_value = str(value).strip().lower()
+                            if amend_value == 'yes':
+                                normalized[db_field] = True
+                            elif amend_value == 'no':
+                                normalized[db_field] = False
+                            else:
+                                normalized[db_field] = None  # Handle '-' or other values
+                        elif db_field == 'status_date':
+                            # Extract date from "Submitted 09/23/2025" format
+                            import re
+                            date_match = re.search(r'(\d{2}/\d{2}/\d{4})', str(value).strip())
+                            if date_match:
+                                normalized[db_field] = date_match.group(1)
+                            else:
+                                normalized[db_field] = None
+                        else:
+                            normalized[db_field] = str(value).strip()
                     else:
                         normalized[db_field] = None
                 else:
@@ -412,6 +432,8 @@ class RequestsEngine:
             else:
                 normalized['operator_name'] = operator_name
                 normalized['operator_number'] = None
+            
+            # No longer need to set permit_no as it's been removed
             
             # Only return if we have meaningful data
             if any(v for v in normalized.values() if v):
@@ -513,62 +535,17 @@ class PlaywrightEngine:
                     # Get page content
                     page_html = page.content()
                     
-                    # Parse the table
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(page_html, "lxml")
-                    table = self._find_results_table(soup)
+                    # Use the new RRC results parser for better well number extraction
+                    from .parsers.rrc_results import parse_results_well_numbers
                     
-                    if not table:
+                    page_permits = parse_results_well_numbers(page_html)
+                    if page_permits:
+                        permits.extend(page_permits)
+                        logger.info(f"Page {page_count}: Added {len(page_permits)} permits with improved well number extraction")
+                    else:
                         if not permits:
                             raise Exception("No results table found")
                         break
-                    
-                    # Extract rows
-                    rows = table.find_all("tr")
-                    header, data_rows = self._split_header_rows(rows)
-                    header_text = [c.get_text(strip=True) for c in header]
-                    
-                    # Use global header if current page doesn't have one
-                    if not header_text and global_header_text:
-                        header_text = global_header_text
-                        logger.info(f"Using global header for page {page_count}")
-                    elif header_text:
-                        global_header_text = header_text
-                        logger.info(f"Stored global header from page {page_count}")
-                    
-                    logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
-                    logger.info(f"Header text: {header_text}")
-                    
-                    for i, tr in enumerate(data_rows):
-                        cols = [c.get_text(separator=" ", strip=True) for c in tr.find_all(["td", "th"])]
-                        if not cols or all(not c for c in cols):
-                            logger.debug(f"Skipping empty row {i+1}")
-                            continue
-                        
-                        # Skip rows that contain navigation or page info
-                        if any(nav_text in ' '.join(cols) for nav_text in ['Search W1', 'Results', 'Searched for:', 'Click on lease name', 'Next', 'Page:']):
-                            logger.debug(f"Skipping navigation row {i+1}: {cols}")
-                            continue
-                        
-                        # Build a dict keyed by header
-                        item = {}
-                        if header_text and len(header_text) == len(cols):
-                            for k, v in zip(header_text, cols):
-                                if k:
-                                    item[k] = v
-                        else:
-                            for j, v in enumerate(cols):
-                                item[f"col_{j+1}"] = v
-                        
-                        logger.debug(f"Row {i+1}: {item}")
-                        
-                        # Normalize the item
-                        normalized_item = self._normalize_permit_item(item)
-                        if normalized_item:
-                            permits.append(normalized_item)
-                            logger.debug(f"Added permit: {normalized_item}")
-                        else:
-                            logger.debug(f"Skipped row {i+1} - no meaningful data")
                     
                     # Look for next page
                     next_link = page.locator("text=Next >>").first
@@ -704,7 +681,26 @@ class PlaywrightEngine:
                 if rrc_field in item:
                     value = item[rrc_field]
                     if value and str(value).strip():
-                        normalized[db_field] = str(value).strip()
+                        # Special handling for specific fields
+                        if db_field == 'amend':
+                            # Convert amend field to boolean
+                            amend_value = str(value).strip().lower()
+                            if amend_value == 'yes':
+                                normalized[db_field] = True
+                            elif amend_value == 'no':
+                                normalized[db_field] = False
+                            else:
+                                normalized[db_field] = None  # Handle '-' or other values
+                        elif db_field == 'status_date':
+                            # Extract date from "Submitted 09/23/2025" format
+                            import re
+                            date_match = re.search(r'(\d{2}/\d{2}/\d{4})', str(value).strip())
+                            if date_match:
+                                normalized[db_field] = date_match.group(1)
+                            else:
+                                normalized[db_field] = None
+                        else:
+                            normalized[db_field] = str(value).strip()
                     else:
                         normalized[db_field] = None
                 else:
@@ -753,6 +749,8 @@ class PlaywrightEngine:
             else:
                 normalized['operator_name'] = operator_name
                 normalized['operator_number'] = None
+            
+            # No longer need to set permit_no as it's been removed
             
             # Only return if we have meaningful data
             if any(v for v in normalized.values() if v):

@@ -433,6 +433,50 @@ class Scraper:
                         normalized[schema_field] = value_clean
                     break
         
+        # Enhanced well_no extraction using pattern matching (if not already found)
+        if not normalized.get('well_no'):
+            import re
+            # Look for well number patterns like "303HL", "3BN", "1JM", etc.
+            # These are typically 2-6 characters with letters and numbers
+            # Prioritize longer patterns first
+            well_patterns = [
+                r'\b\d{2,4}[A-Z]{2,3}\b',  # Pattern like "303HL", "305HJ" (2-4 digits + 2-3 letters)
+                r'\b\d+[A-Z]{1,3}\b',      # Pattern like "3BN", "1JM" (digits + 1-3 letters)
+                r'\b[A-Z]\d+[A-Z]*\b',     # Pattern like "H1", "A2B"
+                r'\b\d+[A-Z]\d*\b',        # Pattern like "3H", "1A2"
+            ]
+            
+            # Collect all potential well numbers from all fields and pick the best one
+            all_matches = []
+            for key, value in row_data.items():
+                if value and str(value).strip():
+                    for pattern in well_patterns:
+                        matches = re.findall(pattern, str(value).strip())
+                        for match in matches:
+                            all_matches.append((match, key, value))
+            
+            # Sort by length (longer is better) and then by pattern priority
+            all_matches.sort(key=lambda x: (-len(x[0]), x[0]))
+            
+            for match, field, original_value in all_matches:
+                # Check if this looks like a well number (not a common word or number)
+                if (len(match) >= 2 and len(match) <= 6 and 
+                    not match.isdigit() and 
+                    not match.lower() in ['usa', 'inc', 'llc', 'e&p', 'co', 'lp', 'api', 'no', 'dp'] and
+                    not any(exclude_word in match.lower() for exclude_word in [
+                        'submitted', 'date', 'status', 'operator', 'name', 'number', 'lease', 'dist', 'county', 
+                        'wellbore', 'profile', 'filing', 'purpose', 'amend', 'total', 'depth', 'stacked', 'lateral', 
+                        'parent', 'well', 'current', 'queue', 'diamondback', 'chevron', 'pdeh', 'tgnr', 'panola', 
+                        'wildfire', 'energy', 'operating', 'burlington', 'resources', 'company', 'far', 'cry', 
+                        'bucco', 'lov', 'unit', 'vital', 'signs', 'monty', 'west', 'presswood', 'oil', 'perseus', 
+                        'marian', 'yanta', 'tennant', 'usw', 'fox', 'ector', 'midland', 'loving', 'andrews', 'van', 
+                        'zandt', 'karnes', 'burleson', 'horizontal', 'vertical', 'new', 'drill', 'reenter', 'yes', 
+                        'no', 'mapping', 'drilling', 'permit', 'verification', 'fasken'
+                    ])):
+                    normalized['well_no'] = match
+                    self.logger.debug(f"Found well_no in field '{field}': {original_value} -> {match}")
+                    break
+        
         # Set legacy fields for backward compatibility
         if normalized['status_no'] and not normalized['permit_no']:
             normalized['permit_no'] = normalized['status_no']

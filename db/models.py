@@ -39,11 +39,6 @@ class Permit(Base):
     current_queue = Column(String(100), nullable=True)  # Current Queue
     
     # Legacy fields (keeping for backward compatibility)
-    permit_no = Column(String(50), nullable=True, index=True)  # Legacy field
-    operator = Column(String(200), nullable=True, index=True)  # Legacy field (same as operator_name)
-    well_name = Column(String(200), nullable=True)  # Legacy field (same as well_no)
-    lease_no = Column(String(100), nullable=True)  # Legacy field (same as lease_name)
-    field = Column(String(200), nullable=True)  # Legacy field
     submission_date = Column(Date, nullable=True)  # Legacy field (same as status_date)
     
     # Metadata
@@ -81,11 +76,6 @@ class Permit(Base):
             'stacked_lateral_parent_well_dp': self.stacked_lateral_parent_well_dp,
             'current_queue': self.current_queue,
             # Legacy fields
-            'permit_no': self.permit_no,
-            'operator': self.operator,
-            'well_name': self.well_name,
-            'lease_no': self.lease_no,
-            'field': self.field,
             'submission_date': self.submission_date.isoformat() if self.submission_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

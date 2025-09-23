@@ -169,11 +169,6 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
             total_depth = parse_total_depth(permit_data.get('total_depth'))
             
             # Create permit object
-            # For permits without API numbers, use operator+lease as permit_no
-            permit_no = permit_data.get('status_no') or permit_data.get('api_no')
-            if not permit_no:
-                permit_no = f"{operator_name}_{permit_data.get('lease_name', '')}"
-            
             permit = Permit(
                 status_date=status_date,
                 status_no=permit_data.get('status_no') or permit_data.get('api_no'),  # Use API number if status_no is not available
@@ -191,10 +186,6 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
                 stacked_lateral_parent_well_dp=permit_data.get('stacked_lateral_parent_well_dp'),
                 current_queue=permit_data.get('current_queue'),
                 # Legacy fields for backward compatibility
-                permit_no=permit_no,  # Use operator+lease if no API number
-                operator=operator_name,
-                well_name=permit_data.get('well_no'),
-                lease_no=permit_data.get('lease_name'),
                 submission_date=status_date
             )
             
