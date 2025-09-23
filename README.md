@@ -71,8 +71,25 @@ python tools/migrate.py
 
 The scraper uses Playwright as a fallback engine for complex form interactions. To install Playwright browsers:
 
+### Option 1: Use the setup script (recommended)
 ```bash
-python -m playwright install --with-deps chromium
+python setup_playwright.py
 ```
 
-This installs Chromium and its dependencies for browser automation.
+### Option 2: Manual installation
+```bash
+# Install Playwright browsers
+python -m playwright install chromium
+
+# On Linux, you may also need system dependencies
+python -m playwright install-deps chromium
+```
+
+### Troubleshooting
+
+If you encounter import errors for `playwright.sync_api`, it usually means:
+1. Playwright is not installed: `pip install playwright`
+2. Browser binaries are missing: run the setup script above
+3. System dependencies are missing (Linux): `python -m playwright install-deps chromium`
+
+The scraper will automatically fall back to the requests engine if Playwright is not available.

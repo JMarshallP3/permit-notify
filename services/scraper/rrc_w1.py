@@ -369,8 +369,14 @@ class PlaywrightEngine:
         """
         try:
             from playwright.sync_api import sync_playwright
-        except ImportError:
-            raise Exception("Playwright not installed. Run: pip install playwright && python -m playwright install chromium")
+        except ImportError as e:
+            raise Exception(
+                "Playwright not installed or browser binaries missing. "
+                "To fix this:\n"
+                "1. Install Playwright: pip install playwright\n"
+                "2. Install browser binaries: python -m playwright install chromium\n"
+                f"Original error: {e}"
+            )
         
         logger.info(f"PlaywrightEngine: Starting search {begin} to {end}")
         
@@ -640,6 +646,18 @@ class RRCW1Client:
             result = engine.fetch_all(begin, end, max_pages)
             logger.info(f"PlaywrightEngine completed successfully: {result['count']} permits")
             return result
+        except ImportError as e:
+            logger.error(f"PlaywrightEngine failed due to missing dependencies: {e}")
+            return {
+                "source_root": self.base_url,
+                "query_params": {"begin": begin, "end": end},
+                "pages": 0,
+                "count": 0,
+                "items": [],
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "error": f"Playwright not properly installed. Run 'python setup_playwright.py' to fix. Original error: {e}",
+                "success": False
+            }
         except Exception as e:
             logger.error(f"PlaywrightEngine failed: {e}")
             return {
