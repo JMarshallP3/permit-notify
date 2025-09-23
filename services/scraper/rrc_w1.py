@@ -49,7 +49,11 @@ class RRCW1Client:
         if self._playwright is None:
             try:
                 from playwright.sync_api import sync_playwright
+                logger.info("Starting Playwright initialization...")
+                
                 self._playwright = sync_playwright()
+                logger.info("Playwright context created")
+                
                 self._browser = self._playwright.chromium.launch(
                     headless=True,
                     args=[
@@ -57,10 +61,16 @@ class RRCW1Client:
                         '--disable-dev-shm-usage',
                         '--disable-gpu',
                         '--disable-web-security',
-                        '--disable-features=VizDisplayCompositor'
+                        '--disable-features=VizDisplayCompositor',
+                        '--disable-background-timer-throttling',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-renderer-backgrounding'
                     ]
                 )
+                logger.info("Chromium browser launched")
+                
                 self._page = self._browser.new_page()
+                logger.info("New page created")
                 
                 # Set user agent and viewport
                 self._page.set_user_agent(self.user_agent)
@@ -70,6 +80,9 @@ class RRCW1Client:
                 
             except Exception as e:
                 logger.error(f"Failed to initialize Playwright: {e}")
+                logger.error(f"Playwright error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Playwright traceback: {traceback.format_exc()}")
                 raise
     
     def __del__(self):
