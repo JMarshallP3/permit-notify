@@ -334,6 +334,23 @@ class RequestsEngine:
                 else:
                     normalized[db_field] = None
             
+            # Extract operator number from operator name if present
+            operator_name = item.get('Operator Name/Number', '')
+            if operator_name and '(' in operator_name and ')' in operator_name:
+                # Extract number from format like "COMPANY NAME (123456)"
+                import re
+                match = re.search(r'\((\d+)\)', operator_name)
+                if match:
+                    normalized['operator_number'] = match.group(1)
+                    # Clean operator name by removing the number part
+                    normalized['operator_name'] = re.sub(r'\s*\(\d+\)', '', operator_name).strip()
+                else:
+                    normalized['operator_name'] = operator_name
+                    normalized['operator_number'] = None
+            else:
+                normalized['operator_name'] = operator_name
+                normalized['operator_number'] = None
+            
             # Only return if we have meaningful data
             if any(v for v in normalized.values() if v):
                 return normalized
@@ -595,6 +612,23 @@ class PlaywrightEngine:
                         normalized[db_field] = None
                 else:
                     normalized[db_field] = None
+            
+            # Extract operator number from operator name if present
+            operator_name = item.get('Operator Name/Number', '')
+            if operator_name and '(' in operator_name and ')' in operator_name:
+                # Extract number from format like "COMPANY NAME (123456)"
+                import re
+                match = re.search(r'\((\d+)\)', operator_name)
+                if match:
+                    normalized['operator_number'] = match.group(1)
+                    # Clean operator name by removing the number part
+                    normalized['operator_name'] = re.sub(r'\s*\(\d+\)', '', operator_name).strip()
+                else:
+                    normalized['operator_name'] = operator_name
+                    normalized['operator_number'] = None
+            else:
+                normalized['operator_name'] = operator_name
+                normalized['operator_number'] = None
             
             # Only return if we have meaningful data
             if any(v for v in normalized.values() if v):
