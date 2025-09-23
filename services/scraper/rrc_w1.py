@@ -216,27 +216,31 @@ class RequestsEngine:
             while parent and parent.name != 'form':
                 inputs = parent.find_all("input", {"name": True})
                 if len(inputs) >= 2:
-                    # Look for inputs with names containing 'submit' and 'date'
+                    # Look for inputs with names containing 'submit' and 'start'/'end'
                     date_inputs = []
                     for inp in inputs:
                         name = inp.get("name", "").lower()
-                        if "submit" in name and "date" in name:
+                        if "submit" in name and ("start" in name or "end" in name):
                             date_inputs.append(inp.get("name"))
                     
                     if len(date_inputs) >= 2:
                         return (date_inputs[0], date_inputs[1])
                 parent = parent.parent
         
-        # Fallback: scan all inputs for date-related names
+        # Fallback: scan all inputs for submit start/end names
         all_inputs = soup.find_all("input", {"name": True})
-        date_inputs = []
+        submit_start = None
+        submit_end = None
+        
         for inp in all_inputs:
             name = inp.get("name", "").lower()
-            if "submit" in name and "date" in name:
-                date_inputs.append(inp.get("name"))
+            if name == "submitstart":
+                submit_start = inp.get("name")
+            elif name == "submitend":
+                submit_end = inp.get("name")
         
-        if len(date_inputs) >= 2:
-            return (date_inputs[0], date_inputs[1])
+        if submit_start and submit_end:
+            return (submit_start, submit_end)
         
         return None
     
@@ -470,6 +474,9 @@ class PlaywrightEngine:
                     next_link = page.locator("text=Next >>").first
                     if not next_link.is_visible():
                         next_link = page.locator("text=Next >").first
+                    if not next_link.is_visible():
+                        # Look for pagination links with pager.offset
+                        next_link = page.locator("a[href*='pager.offset']").last
                     
                     if not next_link.is_visible():
                         logger.info("No more pages found")
@@ -500,7 +507,7 @@ class PlaywrightEngine:
         submitted_date_locator = page.locator("text=Submitted Date").first
         if submitted_date_locator.is_visible():
             # Find nearby inputs
-            inputs = page.locator("input[name*='submit'][name*='date']").all()
+            inputs = page.locator("input[name*='submit'][name*='start'], input[name*='submit'][name*='end']").all()
             if len(inputs) >= 2:
                 names = []
                 for inp in inputs:
@@ -510,12 +517,19 @@ class PlaywrightEngine:
                 if len(names) >= 2:
                     return (names[0], names[1])
         
-        # Fallback: get all date-related inputs
-        inputs = page.locator("input[name*='submit'][name*='date']").all()
+        # Fallback: get submit start/end inputs directly
+        submit_start = page.locator("input[name='submitStart']").first
+        submit_end = page.locator("input[name='submitEnd']").first
+        
+        if submit_start.is_visible() and submit_end.is_visible():
+            return ("submitStart", "submitEnd")
+        
+        # Alternative fallback: get all submit-related inputs
+        inputs = page.locator("input[name*='submit']").all()
         names = []
         for inp in inputs:
             name = inp.get_attribute("name")
-            if name:
+            if name and ("start" in name.lower() or "end" in name.lower()):
                 names.append(name)
         
         if len(names) >= 2:
