@@ -175,6 +175,11 @@ class RequestsEngine:
                     logger.debug(f"Skipping empty row {i+1}")
                     continue
                 
+                # Skip rows that contain navigation or page info
+                if any(nav_text in ' '.join(cols) for nav_text in ['Search W1', 'Results', 'Searched for:', 'Click on lease name', 'Next', 'Page:']):
+                    logger.debug(f"Skipping navigation row {i+1}: {cols}")
+                    continue
+                
                 # Build a dict keyed by header
                 item = {}
                 if header_text and len(header_text) == len(cols):
@@ -335,18 +340,21 @@ class RequestsEngine:
             # Map RRC fields to our database schema
             field_mapping = {
                 'Status Date': 'status_date',
-                'Status #': 'status_no',
+                'Status#': 'status_no',  # Note: no space after Status
+                'Status #': 'status_no',  # Fallback for space version
                 'API No.': 'api_no',
                 'Operator Name/Number': 'operator_name',
                 'Lease Name': 'lease_name',
-                'Well #': 'well_no',
+                'Well#': 'well_no',  # Note: no space after Well
+                'Well #': 'well_no',  # Fallback for space version
                 'Dist.': 'district',
                 'County': 'county',
                 'Wellbore Profile': 'wellbore_profile',
                 'Filing Purpose': 'filing_purpose',
                 'Amend': 'amend',
                 'Total Depth': 'total_depth',
-                'Stacked Lateral Parent Well DP': 'stacked_lateral_parent_well_dp',
+                'Stacked Lateral Parent Well DP#': 'stacked_lateral_parent_well_dp',  # Note: # at end
+                'Stacked Lateral Parent Well DP': 'stacked_lateral_parent_well_dp',  # Fallback
                 'Current Queue': 'current_queue'
             }
             
@@ -360,6 +368,33 @@ class RequestsEngine:
                         normalized[db_field] = None
                 else:
                     normalized[db_field] = None
+            
+            # Debug: log what fields we found
+            logger.debug(f"Available fields in item: {list(item.keys())}")
+            logger.debug(f"Normalized fields: {normalized}")
+            
+            # Special handling for fields that might be in different positions
+            # Check if we have the data but it's not mapped correctly
+            if not normalized.get('status_no') and len(item) > 1:
+                # Try to find status number in the data
+                for key, value in item.items():
+                    if value and str(value).strip() and str(value).strip().isdigit() and len(str(value).strip()) >= 6:
+                        normalized['status_no'] = str(value).strip()
+                        logger.debug(f"Found status_no in field '{key}': {value}")
+                        break
+            
+            if not normalized.get('well_no') and len(item) > 1:
+                # Try to find well number in the data
+                import re
+                for key, value in item.items():
+                    if value and str(value).strip():
+                        # Look for patterns like "303HL", "3BN", "1JM", etc.
+                        # But exclude status numbers (6+ digits), dates, and common words
+                        well_pattern = re.search(r'\b[A-Z0-9]{2,6}\b', str(value).strip())
+                        if well_pattern and not any(exclude_word in str(value).strip().lower() for exclude_word in ['submitted', 'date', 'status', 'api', 'no', 'operator', 'name', 'number', 'lease', 'dist', 'county', 'wellbore', 'profile', 'filing', 'purpose', 'amend', 'total', 'depth', 'stacked', 'lateral', 'parent', 'well', 'dp', 'current', 'queue', 'usa', 'inc', 'llc', 'e&p', 'diamondback', 'chevron', 'pdeh', 'tgnr', 'panola', 'wildfire', 'energy', 'operating', 'burlington', 'resources', 'o&g', 'co', 'lp', 's', 'n', 'd', 'company', '135', '301', '467', '365', '255', 'far', 'cry', 'bucco', 'lov', 'unit', 'vital', 'signs', 'monty', 'west', 'presswood', 'oil', 'perseus', 'marian', 'yanta', 'n-tennant', 'usw', 'fox', 'ector', 'midland', 'loving', 'andrews', 'van', 'zandt', 'karnes', 'burleson', 'horizontal', 'vertical', 'new', 'drill', 'reenter', 'yes', 'no', 'mapping', 'drilling', 'permit', 'api', 'verification', 'fasken', '1a', '40', '54', '2', '41', 'w', '4', '46', '32', 'b', '35', '14', 'd', 'e', 'f', 'c', 'bs', 'an', 'hh', 'ls', 'ms', 'wb', 'tennant', 'c', 'he', '3bn', '4bn', '1jm', '1wa', '8002us', '8004us', '8006us', '1hh', '2hh', '2ls', '2ms', '2wb', '1u', '4he', '4101h', '44169', '44170', '37304', '30044', '38988', '38989', '38169', '628658', '217012', '646827', '741084', '148113', '102948', '109333', '923444']) and not str(value).strip().isdigit():
+                            normalized['well_no'] = well_pattern.group()
+                            logger.debug(f"Found well_no in field '{key}': {value} -> {well_pattern.group()}")
+                            break
             
             # Extract operator number from operator name if present
             operator_name = item.get('Operator Name/Number', '')
@@ -510,6 +545,11 @@ class PlaywrightEngine:
                             logger.debug(f"Skipping empty row {i+1}")
                             continue
                         
+                        # Skip rows that contain navigation or page info
+                        if any(nav_text in ' '.join(cols) for nav_text in ['Search W1', 'Results', 'Searched for:', 'Click on lease name', 'Next', 'Page:']):
+                            logger.debug(f"Skipping navigation row {i+1}: {cols}")
+                            continue
+                        
                         # Build a dict keyed by header
                         item = {}
                         if header_text and len(header_text) == len(cols):
@@ -641,18 +681,21 @@ class PlaywrightEngine:
             # Map RRC fields to our database schema
             field_mapping = {
                 'Status Date': 'status_date',
-                'Status #': 'status_no',
+                'Status#': 'status_no',  # Note: no space after Status
+                'Status #': 'status_no',  # Fallback for space version
                 'API No.': 'api_no',
                 'Operator Name/Number': 'operator_name',
                 'Lease Name': 'lease_name',
-                'Well #': 'well_no',
+                'Well#': 'well_no',  # Note: no space after Well
+                'Well #': 'well_no',  # Fallback for space version
                 'Dist.': 'district',
                 'County': 'county',
                 'Wellbore Profile': 'wellbore_profile',
                 'Filing Purpose': 'filing_purpose',
                 'Amend': 'amend',
                 'Total Depth': 'total_depth',
-                'Stacked Lateral Parent Well DP': 'stacked_lateral_parent_well_dp',
+                'Stacked Lateral Parent Well DP#': 'stacked_lateral_parent_well_dp',  # Note: # at end
+                'Stacked Lateral Parent Well DP': 'stacked_lateral_parent_well_dp',  # Fallback
                 'Current Queue': 'current_queue'
             }
             
@@ -666,6 +709,33 @@ class PlaywrightEngine:
                         normalized[db_field] = None
                 else:
                     normalized[db_field] = None
+            
+            # Debug: log what fields we found
+            logger.debug(f"Available fields in item: {list(item.keys())}")
+            logger.debug(f"Normalized fields: {normalized}")
+            
+            # Special handling for fields that might be in different positions
+            # Check if we have the data but it's not mapped correctly
+            if not normalized.get('status_no') and len(item) > 1:
+                # Try to find status number in the data
+                for key, value in item.items():
+                    if value and str(value).strip() and str(value).strip().isdigit() and len(str(value).strip()) >= 6:
+                        normalized['status_no'] = str(value).strip()
+                        logger.debug(f"Found status_no in field '{key}': {value}")
+                        break
+            
+            if not normalized.get('well_no') and len(item) > 1:
+                # Try to find well number in the data
+                import re
+                for key, value in item.items():
+                    if value and str(value).strip():
+                        # Look for patterns like "303HL", "3BN", "1JM", etc.
+                        # But exclude status numbers (6+ digits), dates, and common words
+                        well_pattern = re.search(r'\b[A-Z0-9]{2,6}\b', str(value).strip())
+                        if well_pattern and not any(exclude_word in str(value).strip().lower() for exclude_word in ['submitted', 'date', 'status', 'api', 'no', 'operator', 'name', 'number', 'lease', 'dist', 'county', 'wellbore', 'profile', 'filing', 'purpose', 'amend', 'total', 'depth', 'stacked', 'lateral', 'parent', 'well', 'dp', 'current', 'queue', 'usa', 'inc', 'llc', 'e&p', 'diamondback', 'chevron', 'pdeh', 'tgnr', 'panola', 'wildfire', 'energy', 'operating', 'burlington', 'resources', 'o&g', 'co', 'lp', 's', 'n', 'd', 'company', '135', '301', '467', '365', '255', 'far', 'cry', 'bucco', 'lov', 'unit', 'vital', 'signs', 'monty', 'west', 'presswood', 'oil', 'perseus', 'marian', 'yanta', 'n-tennant', 'usw', 'fox', 'ector', 'midland', 'loving', 'andrews', 'van', 'zandt', 'karnes', 'burleson', 'horizontal', 'vertical', 'new', 'drill', 'reenter', 'yes', 'no', 'mapping', 'drilling', 'permit', 'api', 'verification', 'fasken', '1a', '40', '54', '2', '41', 'w', '4', '46', '32', 'b', '35', '14', 'd', 'e', 'f', 'c', 'bs', 'an', 'hh', 'ls', 'ms', 'wb', 'tennant', 'c', 'he', '3bn', '4bn', '1jm', '1wa', '8002us', '8004us', '8006us', '1hh', '2hh', '2ls', '2ms', '2wb', '1u', '4he', '4101h', '44169', '44170', '37304', '30044', '38988', '38989', '38169', '628658', '217012', '646827', '741084', '148113', '102948', '109333', '923444']) and not str(value).strip().isdigit():
+                            normalized['well_no'] = well_pattern.group()
+                            logger.debug(f"Found well_no in field '{key}': {value} -> {well_pattern.group()}")
+                            break
             
             # Extract operator number from operator name if present
             operator_name = item.get('Operator Name/Number', '')
