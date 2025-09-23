@@ -105,23 +105,57 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
         for i, permit_data in enumerate(permits):
             logger.info(f"Processing permit {i+1}: {permit_data}")
             
-            # Skip header rows (only skip if status_no is exactly 'Status #')
-            if permit_data.get('status_no') == 'Status #':
-                logger.info(f"Skipping header row: {permit_data.get('status_no')}")
+            # Skip header rows (check if this is a header row)
+            if (permit_data.get('status_no') == 'Status #' or 
+                permit_data.get('status_date') == 'Status Date' or
+                permit_data.get('operator_name') == 'Operator Name/Number' or
+                permit_data.get('api_no') == 'API No.' or
+                permit_data.get('lease_name') == 'Lease Name' or
+                permit_data.get('district') == 'Dist.' or
+                permit_data.get('county') == 'County'):
+                logger.info(f"Skipping header row: {permit_data}")
+                continue
+            
+            # Skip if no meaningful data (all fields are None or empty)
+            if not any(v for v in permit_data.values() if v and str(v).strip()):
+                logger.debug("Skipping empty permit row")
+                continue
+            
+            # Skip if this looks like a header row (all values are column names)
+            header_values = ['Status Date', 'Status #', 'API No.', 'Operator Name/Number', 'Lease Name', 'Well #', 'Dist.', 'County', 'Wellbore Profile', 'Filing Purpose', 'Amend', 'Total Depth', 'Stacked Lateral Parent Well DP', 'Current Queue']
+            if all(str(v) in header_values for v in permit_data.values() if v):
+                logger.info(f"Skipping header row (all values are column names): {permit_data}")
                 continue
             
             # Use API number as unique identifier if status_no is not available
+            # For permits without API numbers, use operator_name + lease_name as unique identifier
             unique_id = permit_data.get('status_no') or permit_data.get('api_no')
             if not unique_id:
-                logger.debug("Skipping permit with no unique identifier")
-                continue
+                # Create a unique identifier from operator and lease name
+                operator = permit_data.get('operator_name', '')
+                lease = permit_data.get('lease_name', '')
+                if operator and lease:
+                    unique_id = f"{operator}_{lease}"
+                    logger.debug(f"Using operator+lease as unique ID: {unique_id}")
+                else:
+                    logger.debug("Skipping permit with no unique identifier")
+                    continue
             
-            # Check if permit already exists (by status_no or api_no)
+            # Check if permit already exists (by status_no, api_no, or operator+lease)
             existing = None
             if permit_data.get('status_no'):
                 existing = session.query(Permit).filter_by(status_no=permit_data.get('status_no')).first()
             elif permit_data.get('api_no'):
                 existing = session.query(Permit).filter_by(api_no=permit_data.get('api_no')).first()
+            else:
+                # Check by operator_name + lease_name for permits without API numbers
+                operator = permit_data.get('operator_name', '')
+                lease = permit_data.get('lease_name', '')
+                if operator and lease:
+                    existing = session.query(Permit).filter_by(
+                        operator_name=operator, 
+                        lease_name=lease
+                    ).first()
             
             if existing:
                 logger.debug(f"Permit {unique_id} already exists, skipping")
@@ -135,6 +169,11 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
             total_depth = parse_total_depth(permit_data.get('total_depth'))
             
             # Create permit object
+            # For permits without API numbers, use operator+lease as permit_no
+            permit_no = permit_data.get('status_no') or permit_data.get('api_no')
+            if not permit_no:
+                permit_no = f"{operator_name}_{permit_data.get('lease_name', '')}"
+            
             permit = Permit(
                 status_date=status_date,
                 status_no=permit_data.get('status_no') or permit_data.get('api_no'),  # Use API number if status_no is not available
@@ -152,7 +191,7 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
                 stacked_lateral_parent_well_dp=permit_data.get('stacked_lateral_parent_well_dp'),
                 current_queue=permit_data.get('current_queue'),
                 # Legacy fields for backward compatibility
-                permit_no=permit_data.get('status_no') or permit_data.get('api_no'),  # Use API number if status_no is not available
+                permit_no=permit_no,  # Use operator+lease if no API number
                 operator=operator_name,
                 well_name=permit_data.get('well_no'),
                 lease_no=permit_data.get('lease_name'),
@@ -185,7 +224,7 @@ def main():
     # Get date range from environment or use today
     begin_date = os.getenv('SCRAPE_BEGIN_DATE', date.today().strftime('%m/%d/%Y'))
     end_date = os.getenv('SCRAPE_END_DATE', date.today().strftime('%m/%d/%Y'))
-    max_pages = int(os.getenv('SCRAPE_MAX_PAGES', '5'))
+    max_pages = int(os.getenv('SCRAPE_MAX_PAGES', '10'))  # Increased to ensure we get all pages
     
     logger.info(f"Starting permit scraping: {begin_date} to {end_date}")
     logger.info(f"Max pages: {max_pages}")

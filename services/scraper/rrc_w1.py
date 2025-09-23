@@ -136,6 +136,7 @@ class RequestsEngine:
         permits = []
         page_html = r.text
         page_count = 0
+        global_header_text = None  # Store header from first page
         
         while True:
             page_count += 1
@@ -157,11 +158,21 @@ class RequestsEngine:
             header, data_rows = self._split_header_rows(rows)
             header_text = [c.get_text(strip=True) for c in header]
             
-            logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
+            # Use global header if current page doesn't have one
+            if not header_text and global_header_text:
+                header_text = global_header_text
+                logger.info(f"Using global header for page {page_count}")
+            elif header_text:
+                global_header_text = header_text
+                logger.info(f"Stored global header from page {page_count}")
             
-            for tr in data_rows:
+            logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
+            logger.info(f"Header text: {header_text}")
+            
+            for i, tr in enumerate(data_rows):
                 cols = [c.get_text(separator=" ", strip=True) for c in tr.find_all(["td", "th"])]
                 if not cols or all(not c for c in cols):
+                    logger.debug(f"Skipping empty row {i+1}")
                     continue
                 
                 # Build a dict keyed by header
@@ -171,13 +182,18 @@ class RequestsEngine:
                         if k:
                             item[k] = v
                 else:
-                    for i, v in enumerate(cols):
-                        item[f"col_{i+1}"] = v
+                    for j, v in enumerate(cols):
+                        item[f"col_{j+1}"] = v
+                
+                logger.debug(f"Row {i+1}: {item}")
                 
                 # Normalize the item
                 normalized_item = self._normalize_permit_item(item)
                 if normalized_item:
                     permits.append(normalized_item)
+                    logger.debug(f"Added permit: {normalized_item}")
+                else:
+                    logger.debug(f"Skipped row {i+1} - no meaningful data")
             
             # Find next page
             next_href = self._find_next_link(page_soup)
@@ -268,14 +284,25 @@ class RequestsEngine:
         """Return (header_cells, data_rows)."""
         if not rows:
             return [], []
+        
         # First row is header if it uses <th> or looks like a label row
         ths = rows[0].find_all("th")
         if ths:
             return ths, rows[1:]
-        # Fallback: treat first row as header if all cells are labels
+        
+        # Check if first row is a header by looking for column names
         tds = rows[0].find_all("td")
-        if tds and all(td.get_text(strip=True) for td in tds):
-            return tds, rows[1:]
+        if tds:
+            first_row_text = [td.get_text(strip=True) for td in tds]
+            # Check if this looks like a header row (contains column names)
+            header_indicators = ['Status Date', 'Status #', 'API No.', 'Operator Name/Number', 'Lease Name', 'Well #', 'Dist.', 'County', 'Wellbore Profile', 'Filing Purpose', 'Amend', 'Total Depth', 'Stacked Lateral Parent Well DP', 'Current Queue']
+            
+            # If most of the first row contains header indicators, treat it as header
+            header_count = sum(1 for text in first_row_text if text in header_indicators)
+            if header_count >= 3:  # At least 3 columns match header names
+                logger.info(f"Detected header row: {first_row_text}")
+                return tds, rows[1:]
+        
         return [], rows
     
     def _find_next_link(self, soup) -> Optional[str]:
@@ -440,6 +467,7 @@ class PlaywrightEngine:
                 # Parse results
                 permits = []
                 page_count = 0
+                global_header_text = None  # Store header from first page
                 
                 while True:
                     page_count += 1
@@ -465,11 +493,21 @@ class PlaywrightEngine:
                     header, data_rows = self._split_header_rows(rows)
                     header_text = [c.get_text(strip=True) for c in header]
                     
-                    logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
+                    # Use global header if current page doesn't have one
+                    if not header_text and global_header_text:
+                        header_text = global_header_text
+                        logger.info(f"Using global header for page {page_count}")
+                    elif header_text:
+                        global_header_text = header_text
+                        logger.info(f"Stored global header from page {page_count}")
                     
-                    for tr in data_rows:
+                    logger.info(f"Processing page {page_count}: {len(data_rows)} data rows")
+                    logger.info(f"Header text: {header_text}")
+                    
+                    for i, tr in enumerate(data_rows):
                         cols = [c.get_text(separator=" ", strip=True) for c in tr.find_all(["td", "th"])]
                         if not cols or all(not c for c in cols):
+                            logger.debug(f"Skipping empty row {i+1}")
                             continue
                         
                         # Build a dict keyed by header
@@ -479,13 +517,18 @@ class PlaywrightEngine:
                                 if k:
                                     item[k] = v
                         else:
-                            for i, v in enumerate(cols):
-                                item[f"col_{i+1}"] = v
+                            for j, v in enumerate(cols):
+                                item[f"col_{j+1}"] = v
+                        
+                        logger.debug(f"Row {i+1}: {item}")
                         
                         # Normalize the item
                         normalized_item = self._normalize_permit_item(item)
                         if normalized_item:
                             permits.append(normalized_item)
+                            logger.debug(f"Added permit: {normalized_item}")
+                        else:
+                            logger.debug(f"Skipped row {i+1} - no meaningful data")
                     
                     # Look for next page
                     next_link = page.locator("text=Next >>").first
@@ -569,14 +612,25 @@ class PlaywrightEngine:
         """Return (header_cells, data_rows)."""
         if not rows:
             return [], []
+        
         # First row is header if it uses <th> or looks like a label row
         ths = rows[0].find_all("th")
         if ths:
             return ths, rows[1:]
-        # Fallback: treat first row as header if all cells are labels
+        
+        # Check if first row is a header by looking for column names
         tds = rows[0].find_all("td")
-        if tds and all(td.get_text(strip=True) for td in tds):
-            return tds, rows[1:]
+        if tds:
+            first_row_text = [td.get_text(strip=True) for td in tds]
+            # Check if this looks like a header row (contains column names)
+            header_indicators = ['Status Date', 'Status #', 'API No.', 'Operator Name/Number', 'Lease Name', 'Well #', 'Dist.', 'County', 'Wellbore Profile', 'Filing Purpose', 'Amend', 'Total Depth', 'Stacked Lateral Parent Well DP', 'Current Queue']
+            
+            # If most of the first row contains header indicators, treat it as header
+            header_count = sum(1 for text in first_row_text if text in header_indicators)
+            if header_count >= 3:  # At least 3 columns match header names
+                logger.info(f"Detected header row: {first_row_text}")
+                return tds, rows[1:]
+        
         return [], rows
     
     def _normalize_permit_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
