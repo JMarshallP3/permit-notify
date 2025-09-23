@@ -102,15 +102,29 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
     skipped_count = 0
     
     try:
-        for permit_data in permits:
-            # Skip header rows
-            if permit_data.get('status_no') == 'Status #' or not permit_data.get('status_no'):
+        for i, permit_data in enumerate(permits):
+            logger.info(f"Processing permit {i+1}: {permit_data}")
+            
+            # Skip header rows (only skip if status_no is exactly 'Status #')
+            if permit_data.get('status_no') == 'Status #':
+                logger.info(f"Skipping header row: {permit_data.get('status_no')}")
                 continue
             
-            # Check if permit already exists
-            existing = session.query(Permit).filter_by(status_no=permit_data.get('status_no')).first()
+            # Use API number as unique identifier if status_no is not available
+            unique_id = permit_data.get('status_no') or permit_data.get('api_no')
+            if not unique_id:
+                logger.debug("Skipping permit with no unique identifier")
+                continue
+            
+            # Check if permit already exists (by status_no or api_no)
+            existing = None
+            if permit_data.get('status_no'):
+                existing = session.query(Permit).filter_by(status_no=permit_data.get('status_no')).first()
+            elif permit_data.get('api_no'):
+                existing = session.query(Permit).filter_by(api_no=permit_data.get('api_no')).first()
+            
             if existing:
-                logger.debug(f"Permit {permit_data.get('status_no')} already exists, skipping")
+                logger.debug(f"Permit {unique_id} already exists, skipping")
                 skipped_count += 1
                 continue
             
@@ -123,7 +137,7 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
             # Create permit object
             permit = Permit(
                 status_date=status_date,
-                status_no=permit_data.get('status_no'),
+                status_no=permit_data.get('status_no') or permit_data.get('api_no'),  # Use API number if status_no is not available
                 api_no=permit_data.get('api_no'),
                 operator_name=operator_name,
                 operator_number=operator_number,
@@ -138,7 +152,7 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
                 stacked_lateral_parent_well_dp=permit_data.get('stacked_lateral_parent_well_dp'),
                 current_queue=permit_data.get('current_queue'),
                 # Legacy fields for backward compatibility
-                permit_no=permit_data.get('status_no'),  # Use status_no as permit_no
+                permit_no=permit_data.get('status_no') or permit_data.get('api_no'),  # Use API number if status_no is not available
                 operator=operator_name,
                 well_name=permit_data.get('well_no'),
                 lease_no=permit_data.get('lease_name'),
