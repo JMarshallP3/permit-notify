@@ -11,7 +11,7 @@ from datetime import datetime
 def push_enriched_to_railway():
     """Push all enriched permit data to Railway database."""
     
-    # Local Docker database connection
+    # Local Docker database connection (through Docker container)
     local_db_url = "postgresql://permit_app:permit_password@localhost:5432/permit_notify"
     
     # Railway database connection (from environment)
