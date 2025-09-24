@@ -1,33 +1,45 @@
-#!/usr/bin/env python3
-"""
-Simple script to update Railway database with the enhanced data.
-"""
-
-import psycopg
+# simple_railway_update.py
 import os
+import psycopg
 
-def update_railway_directly():
+def mask_url(u: str) -> str:
+    if not u:
+        return "None"
+    try:
+        prefix, rest = u.split("://", 1)
+        if "@" in rest and ":" in rest.split("@")[0]:
+            user_pass, host_part = rest.split("@", 1)
+            user, _ = user_pass.split(":", 1)
+            return f"{prefix}://{user}:***@{host_part}"
+        return u
+    except Exception:
+        return u
+
+def update_railway_directly() -> bool:
     """Update Railway database with the GREEN BULLET enhanced data."""
-    
-    # Use the Railway DATABASE_URL we had working before
-    railway_db_url = "postgresql://postgres:Neq5tOjGHDonvpmtbMVtsikIEoxCRbullant.proxy.rlwy.net:57268/railway"
-    
+    railway_db_url = os.getenv("DATABASE_URL")
+
     print("🚀 UPDATING RAILWAY DATABASE")
     print("=" * 40)
-    
+    print(f"[debug] DATABASE_URL (masked) = {mask_url(railway_db_url)}")
+
+    if not railway_db_url:
+        print("❌ Error: DATABASE_URL is not set in the environment.")
+        print('   Set it, then rerun:')
+        print('   $env:DATABASE_URL = "postgresql://postgres:<PASSWORD>@ballast.proxy.rlwy.net:57963/railway?sslmode=require"')
+        return False
+
     try:
         print("🔄 Connecting to Railway database...")
-        
-        with psycopg.connect(railway_db_url) as conn:
+        with psycopg.connect(railway_db_url, sslmode="require") as conn:
             with conn.cursor() as cur:
                 print("✅ Connected successfully!")
-                
-                # Update the 3 GREEN BULLET permits with correct enhanced data
+
                 updates = [
                     {
                         'status_no': '910678',
                         'section': '15',
-                        'block': '28', 
+                        'block': '28',
                         'survey': 'PSL',
                         'abstract_no': 'A-980',
                         'acres': 1284.37,
@@ -38,7 +50,7 @@ def update_railway_directly():
                         'status_no': '910679',
                         'section': '15',
                         'block': '28',
-                        'survey': 'PSL', 
+                        'survey': 'PSL',
                         'abstract_no': 'A-980',
                         'acres': 1284.37,
                         'field_name': 'PHANTOM (WOLFCAMP)',
@@ -51,17 +63,17 @@ def update_railway_directly():
                         'survey': 'PSL',
                         'abstract_no': 'A-980',
                         'acres': 1284.37,
-                        'field_name': 'PHANTOM (WOLFCAMP)', 
+                        'field_name': 'PHANTOM (WOLFCAMP)',
                         'reservoir_well_count': 4
                     }
                 ]
-                
+
                 print("📝 Updating GREEN BULLET permits with enhanced data...")
-                
-                for update in updates:
+                for upd in updates:
                     try:
-                        cur.execute("""
-                            UPDATE permits.permits SET 
+                        cur.execute(
+                            """
+                            UPDATE public.permits SET 
                                 section = %s,
                                 block = %s,
                                 survey = %s,
@@ -71,70 +83,73 @@ def update_railway_directly():
                                 reservoir_well_count = %s,
                                 updated_at = NOW()
                             WHERE status_no = %s
-                        """, (
-                            update['section'],
-                            update['block'],
-                            update['survey'],
-                            update['abstract_no'],
-                            update['acres'],
-                            update['field_name'],
-                            update['reservoir_well_count'],
-                            update['status_no']
-                        ))
-                        
-                        print(f"   ✅ Updated permit {update['status_no']} - wells: {update['reservoir_well_count']}")
-                        
+                            """,
+                            (
+                                upd['section'],
+                                upd['block'],
+                                upd['survey'],
+                                upd['abstract_no'],
+                                upd['acres'],
+                                upd['field_name'],
+                                upd['reservoir_well_count'],
+                                upd['status_no'],
+                            ),
+                        )
+                        if cur.rowcount == 0:
+                            print(f"   ⚠️  No rows matched status_no {upd['status_no']} (check value).")
+                        else:
+                            print(f"   ✅ Updated permit {upd['status_no']} → wells: {upd['reservoir_well_count']}")
                     except Exception as e:
-                        print(f"   ❌ Error updating permit {update['status_no']}: {e}")
-                
-                # Commit all changes
+                        print(f"   ❌ Error updating permit {upd['status_no']}: {e}")
+
                 conn.commit()
                 print("\n🎉 All updates committed to Railway!")
-                
+
                 # Verify the updates
                 print("\n🔍 Verifying updates...")
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT status_no, lease_name, section, block, survey, abstract_no, 
                            acres, field_name, reservoir_well_count
-                    FROM permits.permits 
+                    FROM public.permits
                     WHERE status_no IN ('910678', '910679', '910681')
                     ORDER BY status_no
-                """)
-                
-                results = cur.fetchall()
-                
-                if results:
+                    """
+                )
+                rows = cur.fetchall()
+                if rows:
                     print("\n📊 UPDATED DATA IN RAILWAY:")
                     print("Status   | Lease Name                | Sec | Blk | Survey | Abstract | Acres   | Field Name         | Wells")
-                    print("---------|---------------------------|-----|-----|--------|----------|---------|--------------------|---------")
-                    
-                    for row in results:
-                        status_no = row[0]
-                        lease_name = row[1][:25] if row[1] else 'N/A'
-                        section = row[2] or 'N/A'
-                        block = row[3] or 'N/A'
-                        survey = row[4] or 'N/A'
-                        abstract_no = row[5] or 'N/A'
-                        acres = f"{row[6]:.1f}" if row[6] else 'N/A'
-                        field_name = row[7][:18] if row[7] else 'N/A'
-                        wells = row[8] or 'N/A'
-                        
+                    print("---------|---------------------------|-----|-----|--------|----------|---------|--------------------|------")
+                    for r in rows:
+                        status_no   = r[0]
+                        lease_name  = (r[1] or 'N/A')[:25]
+                        section     = r[2] or 'N/A'
+                        block       = r[3] or 'N/A'
+                        survey      = r[4] or 'N/A'
+                        abstract_no = r[5] or 'N/A'
+                        acres       = f"{r[6]:.1f}" if r[6] is not None else 'N/A'
+                        field_name  = (r[7] or 'N/A')[:18]
+                        wells       = r[8] or 'N/A'
                         print(f"{status_no:<8} | {lease_name:<25} | {section:<3} | {block:<3} | {survey:<6} | {abstract_no:<8} | {acres:<7} | {field_name:<18} | {wells}")
-                
+                else:
+                    print("⚠️  No matching rows found for verification (check status_no values).")
+
                 return True
-                
+
     except Exception as e:
         print(f"❌ Error: {e}")
         return False
 
 if __name__ == "__main__":
-    success = update_railway_directly()
-    if success:
+    ok = update_railway_directly()
+    if ok:
         print("\n🎉 SUCCESS! Railway database updated with enhanced parsing data!")
-        print("   Your GREEN BULLET permits now have correct:")
-        print("   • Section: 15, Block: 28, Survey: PSL")  
+        print("   • Section: 15, Block: 28, Survey: PSL")
         print("   • Abstract: A-980, Acres: 1284.37")
         print("   • Field: PHANTOM (WOLFCAMP)")
         print("   • Reservoir Well Count: 2, 3, 4 (FIXED!)")
     else:
         print("\n❌ Update failed. Please check the errors above.")
+
+
