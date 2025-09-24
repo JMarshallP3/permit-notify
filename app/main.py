@@ -90,9 +90,10 @@ async def scrape():
 async def get_permits(limit: int = Query(50, ge=1, le=1000)):
     """Get recent permits from database."""
     try:
-        # Check if we're in Railway environment
-        if os.getenv('RAILWAY_ENVIRONMENT'):
-            logger.info("Running in Railway environment - enabling database queries")
+        # Enable database operations in Railway or Docker development environment
+        railway_env = os.getenv('RAILWAY_ENVIRONMENT')
+        if railway_env or os.getenv('DATABASE_URL'):  # Enable if Railway env or DATABASE_URL is set
+            logger.info(f"Enabling database queries (env: {railway_env or 'docker'})")
             permits = get_recent_permits(limit)
             return {
                 "permits": permits,
@@ -145,8 +146,10 @@ async def w1_search(
         
         # Store results in database if we have items
         if result.get("items"):
-            if os.getenv('RAILWAY_ENVIRONMENT'):
-                logger.info(f"Running in Railway environment - storing {len(result['items'])} permits in database")
+            # Enable database operations in Railway or Docker development environment
+            railway_env = os.getenv('RAILWAY_ENVIRONMENT')
+            if railway_env or os.getenv('DATABASE_URL'):  # Enable if Railway env or DATABASE_URL is set
+                logger.info(f"Storing {len(result['items'])} permits in database (env: {railway_env or 'docker'})")
                 upsert_result = upsert_permits(result["items"])
                 result["database"] = upsert_result
                 logger.info(f"Stored {upsert_result['inserted']} new permits, updated {upsert_result['updated']} permits")

@@ -129,10 +129,31 @@ def parse_results_well_numbers(html: str) -> List[Dict[str, str]]:
             href = cells[lease_idx].find("a").get("href")
             lease_link = normalize_rrc_link(href)
 
+        # Convert amend field to boolean
+        amend_bool = None
+        if amend:
+            amend_lower = amend.lower().strip()
+            if amend_lower == 'yes':
+                amend_bool = True
+            elif amend_lower == 'no':
+                amend_bool = False
+            # else: leave as None for '-' or other values
+        
+        # Parse status_date to extract just the date part
+        parsed_status_date = None
+        if status_date:
+            import re
+            # Extract date from "Submitted 09/24/2025" format
+            date_match = re.search(r'(\d{2}/\d{2}/\d{4})', status_date.strip())
+            if date_match:
+                parsed_status_date = date_match.group(1)
+            else:
+                parsed_status_date = status_date.strip() if status_date.strip() else None
+        
         # Only include rows with meaningful data
         if status_no or api_number or operator_name:
             out.append({
-                "status_date": status_date,
+                "status_date": parsed_status_date,
                 "status_no": status_no,
                 "api_no": api_number,
                 "operator_name": operator_name,
@@ -142,10 +163,10 @@ def parse_results_well_numbers(html: str) -> List[Dict[str, str]]:
                 "county": county,
                 "wellbore_profile": wellbore_profile,
                 "filing_purpose": filing_purpose,
-                "amend": amend,
+                "amend": amend_bool,
                 "total_depth": total_depth,
                 "current_queue": current_queue,
-                "detail_href": lease_link,
+                "detail_url": lease_link,
             })
             
             if well_number:

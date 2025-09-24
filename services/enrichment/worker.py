@@ -7,8 +7,9 @@ import requests
 import argparse
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+from sqlalchemy import or_, and_
 import sys
 import os
 
@@ -18,7 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from db.session import get_session
 from db.models import Permit
 from .detail_parser import parse_detail_page
-from .pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
+from .pdf_parse import extract_text_from_pdf, parse_reservoir_well_count, parse_pdf_fields
 
 logger = logging.getLogger(__name__)
 
@@ -72,88 +73,42 @@ class EnrichmentWorker:
         delays = [base_delay, base_delay * 3, base_delay * 10]
         return delays[min(attempt, len(delays) - 1)]
     
-    def _make_request(self, url: str, referer: Optional[str] = None, max_retries: int = 3) -> Optional[requests.Response]:
-        """
-        Make HTTP request with rate limiting and backoff.
-        
-        Args:
-            url: URL to request
-            referer: Referer header value
-            max_retries: Maximum number of retries
-            
-        Returns:
-            Response object or None if failed
-        """
-        for attempt in range(max_retries + 1):
+    def _make_request(self, url: str, max_retries: int = 3, headers: Optional[dict] = None) -> Optional[requests.Response]:
+        """Make HTTP request with exponential backoff."""
+        for attempt in range(max_retries):
             try:
-                self._rate_limit_wait()
-                
-                # Set referer if provided
-                headers = {}
-                if referer:
-                    headers['Referer'] = referer
-                
-                response = self.session.get(url, timeout=30, headers=headers)
-                
-                # Check for rate limiting or server errors
-                if response.status_code == 429:
-                    delay = self._backoff_wait(attempt)
-                    logger.warning(f"Rate limited (429), waiting {delay}s before retry {attempt + 1}")
-                    time.sleep(delay)
-                    continue
-                elif response.status_code >= 500:
-                    delay = self._backoff_wait(attempt)
-                    logger.warning(f"Server error {response.status_code}, waiting {delay}s before retry {attempt + 1}")
-                    time.sleep(delay)
-                    continue
-                elif response.status_code == 200:
+                response = self.session.get(url, timeout=30, headers=headers or {})
+                if response.status_code == 200:
                     return response
+                elif response.status_code in [429, 500, 502, 503, 504]:
+                    wait_time = [1, 3, 10][min(attempt, 2)]
+                    self.logger.warning(f"HTTP {response.status_code}, retrying {url} in {wait_time}s")
+                    time.sleep(wait_time)
                 else:
-                    logger.error(f"HTTP {response.status_code} for URL: {url}")
+                    self.logger.error(f"HTTP {response.status_code} for {url}")
                     return None
-                    
-            except requests.exceptions.RequestException as e:
-                if attempt < max_retries:
-                    delay = self._backoff_wait(attempt)
-                    logger.warning(f"Request failed: {e}, waiting {delay}s before retry {attempt + 1}")
-                    time.sleep(delay)
-                else:
-                    logger.error(f"Request failed after {max_retries} retries: {e}")
-                    return None
-        
+            except Exception as e:
+                self.logger.error(f"Request failed for {url}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep([1, 3, 10][min(attempt, 2)])
         return None
     
     def get_pending_permits(self, limit: int = 5) -> List[Permit]:
-        """
-        Get permits that need enrichment.
-        
-        Args:
-            limit: Maximum number of permits to return
-            
-        Returns:
-            List of Permit objects
-        """
-        try:
-            with get_session() as session:
-                permits = session.query(Permit).filter(
-                    (Permit.horizontal_wellbore.is_(None)) |
-                    (Permit.field_name.is_(None)) |
-                    (Permit.acres.is_(None)) |
-                    (Permit.section.is_(None)) |
-                    (Permit.reservoir_well_count.is_(None))
-                ).filter(
-                    Permit.detail_url.isnot(None)
-                ).order_by(Permit.id.desc()).limit(limit).all()
-                
-                # Detach objects from session to avoid session issues
-                session.expunge_all()
-                
-                logger.info(f"Found {len(permits)} permits needing enrichment")
-                return permits
-                
-        except Exception as e:
-            logger.error(f"Error fetching pending permits: {e}")
-            return []
+        """Pick brand-new OR stale rows to retry."""
+        with get_session() as session:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+            q = session.query(Permit).filter(
+                Permit.detail_url.isnot(None),
+                or_(
+                    Permit.w1_parse_status.is_(None),
+                    and_(Permit.w1_parse_status.in_(['partial','parse_error','download_error','no_pdf']),
+                         or_(Permit.w1_last_enriched_at.is_(None),
+                             Permit.w1_last_enriched_at < cutoff))
+                )
+            ).order_by(Permit.id.desc()).limit(limit)
+            permits = q.all()
+            session.expunge_all()
+            return permits
     
     def _enrich_permit(self, permit: Permit, sleep_ms: int = 0) -> Dict[str, Any]:
         """
@@ -222,7 +177,7 @@ class EnrichmentWorker:
                 
                 pdf_response = self._make_request(
                     detail_data['view_w1_pdf_url'], 
-                    referer=permit.detail_url
+                    headers={'Referer': permit.detail_url}
                 )
                 
                 if pdf_response:
@@ -231,31 +186,43 @@ class EnrichmentWorker:
                         pdf_text = extract_text_from_pdf(pdf_response.content)
                         
                         if pdf_text:
-                            # Parse reservoir well count
-                            well_count, confidence, snippet = parse_reservoir_well_count(pdf_text)
-                            result['reservoir_well_count'] = well_count
-                            result['w1_text_snippet'] = snippet
+                            # Parse all PDF fields comprehensively
+                            pdf_data = parse_pdf_fields(pdf_text)
+                            
+                            # Update result with all parsed fields
+                            result['reservoir_well_count'] = pdf_data.get('reservoir_well_count')
+                            result['section'] = pdf_data.get('section')
+                            result['block'] = pdf_data.get('block')
+                            result['survey'] = pdf_data.get('survey')
+                            result['abstract_no'] = pdf_data.get('abstract_no')
+                            result['acres'] = pdf_data.get('acres')
+                            # Only update field_name from PDF if not already found in HTML
+                            if not result.get('field_name'):
+                                result['field_name'] = pdf_data.get('field_name')
+                            result['w1_text_snippet'] = pdf_data.get('snippet')
+                            result['w1_pdf_url'] = detail_data['view_w1_pdf_url']
+                            result['w1_parse_confidence'] = pdf_data.get('confidence', 0.0)
                         else:
                             logger.warning(f"No text extracted from PDF for permit {permit.status_no}")
                             
                     except Exception as e:
                         logger.error(f"Error processing PDF for permit {permit.status_no}: {e}")
                         result['error'] = f"PDF processing error: {str(e)}"
-                else:
-                    logger.error(f"Failed to download PDF for permit {permit.status_no}")
-                    result['error'] = "Failed to download PDF"
+                elif detail_data.get('view_w1_pdf_url') and not pdf_response:
+                    result['w1_parse_status'] = 'download_error'
+                    result['success'] = True  # still persist HTML fields if any
             else:
                 result['w1_parse_status'] = 'no_pdf'
                 result['error'] = 'No PDF URL found on detail page'
             
             # Step 4: Compute confidence score
             confidence = 0.0
-            if result['horizontal_wellbore']: confidence += 0.3    # single-cell exact
-            if result['field_name']:          confidence += 0.3
-            if result['acres'] is not None:   confidence += 0.2
-            if result['reservoir_well_count'] is not None: confidence += 0.3
-            confidence = min(confidence, 1.0)
-            result['w1_parse_confidence'] = confidence
+            if result['horizontal_wellbore']:       confidence += 0.3
+            if result['field_name']:                confidence += 0.3
+            if result['acres'] is not None:         confidence += 0.2
+            if result['reservoir_well_count'] is not None:
+                confidence += 0.2 + min(0.2, float(result.get('w1_parse_confidence', 0.0)))
+            result['w1_parse_confidence'] = min(confidence, 1.0)
             
             # Step 5: Determine final status based on what we actually parsed
             # Count how many of the 4 fields we have
@@ -310,44 +277,34 @@ class EnrichmentWorker:
         return result
     
     def _update_permit_in_db(self, permit: Permit, result: Dict[str, Any]):
-        """
-        Update permit record in database with enrichment results.
-        Always updates the row with whatever we parsed, even if confidence < 0.6.
-        Commits after each row.
-        
-        Args:
-            permit: Permit object
-            result: Enrichment results
-        """
-        try:
-            with get_session() as session:
-                # Refresh the permit object
-                db_permit = session.query(Permit).filter(Permit.id == permit.id).first()
-                if not db_permit:
-                    logger.error(f"Permit {permit.id} not found in database")
-                    return
-                
-                # Always update fields with whatever we parsed (HTML and/or PDF)
-                db_permit.horizontal_wellbore = result['horizontal_wellbore']
-                db_permit.field_name = result['field_name']
-                db_permit.acres = result['acres']
-                db_permit.section = result['section']
-                db_permit.block = result['block']
-                db_permit.survey = result['survey']
-                db_permit.abstract_no = result['abstract_no']
-                db_permit.reservoir_well_count = result['reservoir_well_count']
-                db_permit.w1_pdf_url = result['w1_pdf_url']
-                db_permit.w1_parse_status = result['w1_parse_status']
-                db_permit.w1_parse_confidence = result['w1_parse_confidence']
-                db_permit.w1_text_snippet = result['w1_text_snippet']
-                db_permit.w1_last_enriched_at = result.get('w1_last_enriched_at', datetime.now(timezone.utc))
-                
-                # Commit after each row
-                session.commit()
-                logger.info(f"Updated permit {permit.status_no} in database with status: {result['w1_parse_status']}")
-                
-        except Exception as e:
-            logger.error(f"Error updating permit {permit.id} in database: {e}")
+        """Update permit in database with enrichment results (no None clobbering)."""
+        with get_session() as session:
+            db_permit = session.query(Permit).filter(Permit.id == permit.id).first()
+            if not db_permit:
+                return
+
+            def set_if(field, key):
+                val = result.get(key)
+                if val is not None:
+                    setattr(db_permit, field, val)
+
+            set_if('horizontal_wellbore', 'horizontal_wellbore')
+            set_if('field_name',          'field_name')
+            set_if('acres',               'acres')
+            set_if('section',             'section')
+            set_if('block',               'block')
+            set_if('survey',              'survey')
+            set_if('abstract_no',         'abstract_no')
+            set_if('w1_pdf_url',          'w1_pdf_url')
+            set_if('reservoir_well_count','reservoir_well_count')
+            set_if('w1_text_snippet',     'w1_text_snippet')
+
+            # Always refresh status/conf/timestamp
+            db_permit.w1_parse_status     = result.get('w1_parse_status')
+            db_permit.w1_parse_confidence = result.get('w1_parse_confidence')
+            db_permit.w1_last_enriched_at = result.get('w1_last_enriched_at')
+
+            session.commit()
     
     def run(self, limit: int = 5, sleep_ms: int = 0) -> Dict[str, Any]:
         """

@@ -12,6 +12,8 @@ from datetime import datetime, timezone, date
 from typing import Dict, List, Any, Optional, Tuple
 from urllib.parse import urljoin
 import re
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -473,7 +475,7 @@ class PlaywrightEngine:
             Dictionary with query results and metadata
         """
         try:
-            from playwright import sync_playwright
+            from playwright.sync_api import sync_playwright
         except ImportError as e:
             raise Exception(
                 "Playwright not installed or browser binaries missing. "
@@ -812,6 +814,10 @@ class RRCW1Client:
         
         # Fallback to PlaywrightEngine
         try:
+            # Apply nest_asyncio to allow nested event loops
+            import nest_asyncio
+            nest_asyncio.apply()
+            
             engine = PlaywrightEngine(self.base_url, self.timeout * 1000)  # Convert to milliseconds
             result = engine.fetch_all(begin, end, max_pages)
             logger.info(f"PlaywrightEngine completed successfully: {result['count']} permits")

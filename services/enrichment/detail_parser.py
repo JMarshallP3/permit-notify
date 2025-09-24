@@ -237,7 +237,13 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
 
     # D) "View Current W-1" PDF link
     href = None
-    a = _xpath_first(tree, "//a[contains(., 'View Current W-1') or contains(@href, 'viewW1PdfFormAction.do')]")
+    a = _xpath_first(tree,
+        "//a[contains(., 'View Current W-1') or "
+        "contains(@href, 'viewW1PdfFormAction.do') or "
+        "contains(@href, 'viewW1FormAction.do') or "
+        "contains(@href, 'viewW1Pdf') or "
+        "contains(@href, 'downloadDocumentAction.do')]"
+    )
     if a is not None:
         h = a.get("href")
         if h:

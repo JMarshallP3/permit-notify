@@ -64,3 +64,4 @@ psycopg[binary]>=3.1.0
 alembic>=1.12
 playwright>=1.47.0
 pdfminer.six>=20221105
+nest-asyncio>=1.5.0

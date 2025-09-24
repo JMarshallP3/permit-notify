@@ -29,6 +29,7 @@ COPY db/ ./db/
 COPY tools/ ./tools/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
+COPY well_number_extractor.py ./
 
 # Expose port
 EXPOSE 8000

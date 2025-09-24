@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15
+    container_name: permit_notify_db
+    environment:
+      POSTGRES_DB: permit_notify
+      POSTGRES_USER: permit_app
+      POSTGRES_PASSWORD: permit_db_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/bootstrap.sql:/docker-entrypoint-initdb.d/bootstrap.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permit_app -d permit_notify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Main application
+  app:
+    build: .
+    container_name: permit_notify_app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg://permit_app:permit_db_password_123@postgres:5432/permit_notify
+      - PERMIT_DB_PASSWORD=permit_db_password_123
+      - SCRAPE_BEGIN_DATE=09/23/2025
+      - SCRAPE_END_DATE=09/23/2025
+      - SCRAPE_MAX_PAGES=10
+      - RAILWAY_ENVIRONMENT=development
+      - PYTHONPATH=/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Mount source code for development (optional - remove for production)
+      - ./app:/app/app
+      - ./routes:/app/routes
+      - ./services:/app/services
+      - ./db:/app/db
+      - ./tools:/app/tools
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
