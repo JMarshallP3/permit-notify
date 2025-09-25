@@ -32,6 +32,7 @@ COPY static/ ./static/
 COPY templates/ ./templates/
 COPY alembic.ini ./
 COPY well_number_extractor.py ./
+COPY start.sh ./
 
 # Expose port
 EXPOSE 8000
@@ -39,5 +40,8 @@ EXPOSE 8000
 # Set environment variables
 ENV PYTHONPATH=/app
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Make start script executable
+RUN chmod +x start.sh
+
+# Run the application with migrations
+CMD ["./start.sh"]
