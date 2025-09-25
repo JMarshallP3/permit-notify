@@ -1630,6 +1630,19 @@ class PermitDashboard {
         
         datasets.forEach((dataset, index) => {
             const isVisible = window.reservoirChart.isDatasetVisible(index);
+            
+            // Calculate total based on view type
+            let total;
+            const viewType = document.getElementById('chartViewSelect')?.value || 'daily';
+            
+            if (viewType === 'cumulative') {
+                // For cumulative view, the total is the last (highest) value in the dataset
+                total = Math.max(...dataset.data);
+            } else {
+                // For daily view, sum all the daily values
+                total = dataset.data.reduce((sum, val) => sum + val, 0);
+            }
+            
             filtersHTML += `
                 <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); cursor: pointer;"
                      onclick="window.dashboard.toggleReservoirVisibility(${index})">
@@ -1638,7 +1651,7 @@ class PermitDashboard {
                     <div style="width: 12px; height: 12px; background: ${dataset.borderColor}; border-radius: 2px; margin-right: 0.25rem;"></div>
                     <span style="font-size: 0.875rem; font-weight: 500; flex: 1;">${dataset.label}</span>
                     <span style="font-size: 0.75rem; color: var(--text-secondary);">
-                        ${dataset.data.reduce((sum, val) => sum + val, 0)} total
+                        ${total} total
                     </span>
                 </div>
             `;
@@ -1826,8 +1839,31 @@ class PermitDashboard {
             this.processParsingQueue();
         });
         
-        document.getElementById('refreshParsingBtn').addEventListener('click', () => {
-            this.loadParsingDashboardData();
+        document.getElementById('refreshParsingBtn').addEventListener('click', async () => {
+            const button = document.getElementById('refreshParsingBtn');
+            const originalText = button.textContent;
+            
+            try {
+                button.textContent = '⏳ Refreshing...';
+                button.disabled = true;
+                
+                await this.loadParsingDashboardData();
+                
+                // Show success feedback
+                button.textContent = '✅ Refreshed';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 1500);
+                
+            } catch (error) {
+                console.error('Error refreshing parsing dashboard:', error);
+                button.textContent = '❌ Failed';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            } finally {
+                button.disabled = false;
+            }
         });
         
         // Close modal on outside click

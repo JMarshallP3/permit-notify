@@ -97,7 +97,7 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
             main_table = table
             break
     
-    if not main_table:
+    if main_table is None:
         return {
             "horizontal_wellbore": None,
             "field_name": None,
