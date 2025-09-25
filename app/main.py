@@ -231,6 +231,106 @@ async def run_enrichment(n: int = Query(5, ge=1, le=50, description="Maximum num
             detail=f"Enrichment failed: {str(e)}"
         )
 
+@app.post("/enrich/auto")
+async def run_auto_enrichment(
+    batch_size: int = Query(10, ge=1, le=50, description="Number of permits to process per batch"),
+    max_batches: int = Query(5, ge=1, le=20, description="Maximum number of batches to run")
+):
+    """
+    Run automated enrichment worker to process all pending permits.
+    
+    Args:
+        batch_size: Number of permits to process per batch (1-50)
+        max_batches: Maximum number of batches to process (1-20)
+        
+    Returns:
+        Dictionary with enrichment results
+    """
+    try:
+        logger.info(f"Starting automated enrichment: {batch_size} permits per batch, max {max_batches} batches")
+        
+        total_processed = 0
+        total_successful = 0
+        total_failed = 0
+        batches_run = 0
+        
+        # Run enrichment in batches until no more permits need processing
+        while batches_run < max_batches:
+            results = run_once(limit=batch_size)
+            
+            # If no permits were processed, we're done
+            if results['processed'] == 0:
+                logger.info("No more permits need enrichment")
+                break
+                
+            total_processed += results['processed']
+            total_successful += results['successful']
+            total_failed += results['failed']
+            batches_run += 1
+            
+            logger.info(f"Batch {batches_run}: {results['processed']} processed, "
+                       f"{results['successful']} successful, {results['failed']} failed")
+            
+            # Small delay between batches to be respectful to the RRC servers
+            import asyncio
+            await asyncio.sleep(2)
+        
+        logger.info(f"Auto-enrichment completed: {total_processed} total processed, "
+                   f"{total_successful} successful, {total_failed} failed across {batches_run} batches")
+        
+        return {
+            "processed": total_processed,
+            "successful": total_successful,
+            "failed": total_failed,
+            "batches_run": batches_run,
+            "status": "completed" if batches_run < max_batches else "max_batches_reached"
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto-enrichment error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Auto-enrichment failed: {str(e)}"
+        )
+
+@app.get("/enrich/trigger")
+async def trigger_enrichment():
+    """
+    Simple trigger endpoint for automated enrichment.
+    Can be called by external cron services or monitoring tools.
+    
+    Returns:
+        Dictionary with enrichment results
+    """
+    try:
+        logger.info("🔄 Triggered automated enrichment via GET endpoint")
+        
+        # Run auto-enrichment with sensible defaults
+        results = run_once(limit=15)  # Process up to 15 permits
+        
+        if results['processed'] > 0:
+            logger.info(f"✅ Triggered enrichment completed: {results['processed']} processed, "
+                       f"{results['successful']} successful, {results['failed']} failed")
+        else:
+            logger.info("ℹ️  No permits needed enrichment")
+        
+        return {
+            "success": True,
+            "processed": results['processed'],
+            "successful": results['successful'],
+            "failed": results['failed'],
+            "message": f"Processed {results['processed']} permits" if results['processed'] > 0 else "No permits needed enrichment",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Triggered enrichment error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
 @app.get("/enrich/debug/{permit_id}")
 async def debug_enrichment(permit_id: int):
     """

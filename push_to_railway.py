@@ -12,7 +12,7 @@ def push_enriched_to_railway():
     """Push all enriched permit data to Railway database."""
     
     # Local Docker database connection (through Docker container)
-    local_db_url = "postgresql://permit_app:permit_password@localhost:5432/permit_notify"
+    local_db_url = "postgresql://permit_app:permit_db_password_123@localhost:5432/permit_notify"
     
     # Railway database connection (from environment)
     railway_db_url = os.getenv('DATABASE_URL')
@@ -38,7 +38,7 @@ def push_enriched_to_railway():
                         section, block, survey, abstract_no, reservoir_well_count,
                         w1_pdf_url, w1_text_snippet, w1_parse_confidence, w1_parse_status,
                         w1_last_enriched_at, created_at, updated_at
-                    FROM permits.permits 
+                    FROM permits 
                     WHERE w1_last_enriched_at IS NOT NULL
                     ORDER BY status_no
                 """)
@@ -64,7 +64,7 @@ def push_enriched_to_railway():
                     try:
                         # Check if permit exists in Railway
                         railway_cur.execute(
-                            "SELECT status_no FROM permits.permits WHERE status_no = %s",
+                            "SELECT status_no FROM permits WHERE status_no = %s",
                             (status_no,)
                         )
                         exists = railway_cur.fetchone()
@@ -72,7 +72,7 @@ def push_enriched_to_railway():
                         if exists:
                             # Update existing permit
                             railway_cur.execute("""
-                                UPDATE permits.permits SET
+                                UPDATE permits SET
                                     api_no = %s, operator_name = %s, lease_name = %s, well_no = %s,
                                     district = %s, county = %s, wellbore_profile = %s, filing_purpose = %s,
                                     amend = %s, total_depth = %s, current_queue = %s, detail_url = %s,
@@ -93,7 +93,7 @@ def push_enriched_to_railway():
                         else:
                             # Insert new permit
                             railway_cur.execute("""
-                                INSERT INTO permits.permits (
+                                INSERT INTO permits (
                                     status_no, api_no, operator_name, lease_name, well_no, district, county,
                                     wellbore_profile, filing_purpose, amend, total_depth, current_queue,
                                     detail_url, status_date, horizontal_wellbore, field_name, acres,
@@ -133,7 +133,7 @@ def push_enriched_to_railway():
                 railway_cur.execute("""
                     SELECT status_no, lease_name, section, block, survey, abstract_no, 
                            acres, field_name, reservoir_well_count
-                    FROM permits.permits 
+                    FROM permits 
                     WHERE section IS NOT NULL 
                     ORDER BY status_no 
                     LIMIT 5
