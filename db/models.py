@@ -23,10 +23,10 @@ class Permit(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     
     # RRC W-1 Search Results fields (matching your requirements)
-    status_date = Column(Date, nullable=True, index=True)  # Status Date
+    status_date = Column(Date, nullable=True, index=True)  # Status Date (MM-DD-YYYY format)
     status_no = Column(String(50), unique=True, nullable=False, index=True)  # Status #
     api_no = Column(String(50), nullable=True, index=True)  # API No.
-    operator_name = Column(String(200), nullable=True, index=True)  # Operator Name/Number
+    operator_name = Column(String(200), nullable=True, index=True)  # Operator Name (cleaned, no number)
     operator_number = Column(String(50), nullable=True)  # Operator number (extracted from name)
     lease_name = Column(String(200), nullable=True)  # Lease Name
     well_no = Column(String(50), nullable=True)  # Well #
@@ -38,9 +38,6 @@ class Permit(Base):
     total_depth = Column(Numeric(10, 2), nullable=True)  # Total Depth
     stacked_lateral_parent_well_dp = Column(String(100), nullable=True)  # Stacked Lateral Parent Well DP
     current_queue = Column(String(100), nullable=True)  # Current Queue
-    
-    # Legacy fields (keeping for backward compatibility)
-    submission_date = Column(Date, nullable=True)  # Legacy field (same as status_date)
     
     # HTML detail page fields
     horizontal_wellbore = sa.Column(sa.Text)  # Horizontal Wellbore
@@ -60,9 +57,9 @@ class Permit(Base):
     w1_text_snippet = sa.Column(sa.Text)  # W-1 Text Snippet
     w1_last_enriched_at = sa.Column(sa.DateTime(timezone=True))  # W-1 Last Enriched At
     
-    # Metadata
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    # Metadata (moved to end)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)  # Moved to last
     
     # Indexes for common queries
     __table_args__ = (
@@ -77,9 +74,14 @@ class Permit(Base):
     
     def to_dict(self):
         """Convert model to dictionary."""
+        # Format status_date as MM-DD-YYYY
+        status_date_formatted = None
+        if self.status_date:
+            status_date_formatted = self.status_date.strftime('%m-%d-%Y')
+        
         return {
             'id': self.id,
-            'status_date': self.status_date.isoformat() if self.status_date else None,
+            'status_date': status_date_formatted,  # MM-DD-YYYY format
             'status_no': self.status_no,
             'api_no': self.api_no,
             'operator_name': self.operator_name,
@@ -94,8 +96,6 @@ class Permit(Base):
             'total_depth': float(self.total_depth) if self.total_depth else None,
             'stacked_lateral_parent_well_dp': self.stacked_lateral_parent_well_dp,
             'current_queue': self.current_queue,
-            # Legacy fields
-            'submission_date': self.submission_date.isoformat() if self.submission_date else None,
             # HTML detail page fields
             'horizontal_wellbore': self.horizontal_wellbore,
             'field_name': self.field_name,
@@ -112,9 +112,9 @@ class Permit(Base):
             'w1_parse_confidence': float(self.w1_parse_confidence) if self.w1_parse_confidence else None,
             'w1_text_snippet': self.w1_text_snippet,
             'w1_last_enriched_at': self.w1_last_enriched_at.isoformat() if self.w1_last_enriched_at else None,
-            # Metadata
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            # Metadata (created_at moved to end)
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
     
     def __repr__(self):

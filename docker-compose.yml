@@ -27,7 +27,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+psycopg://permit_app:permit_db_password_123@postgres:5432/permit_notify
+      - DATABASE_URL=postgresql://postgres:NqDqZtOjqEHJonvpmBtMkVtsalEkeXxF@ballast.proxy.rlwy.net:57963/railway
       - PERMIT_DB_PASSWORD=permit_db_password_123
       - SCRAPE_BEGIN_DATE=09/23/2025
       - SCRAPE_END_DATE=09/23/2025

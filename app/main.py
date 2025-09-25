@@ -1,7 +1,11 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 import sys
 import os
 import logging
+from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
 from services.scraper.scraper import Scraper
@@ -11,15 +15,19 @@ from services.enrichment.detail_parser import parse_detail_page
 from services.enrichment.pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
 from db.models import Permit
 from db.session import Base, engine
-from db.repo import upsert_permits, get_recent_permits
+from db.repo import upsert_permits, get_recent_permits, get_reservoir_trends
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Permit Notify API",
-    description="API for permit notification system",
+    title="PermitTracker",
+    description="Professional permit monitoring dashboard and API",
     version="1.0.0"
 )
+
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 # Create a single Scraper instance for reuse
 scraper_instance = Scraper()
@@ -32,6 +40,17 @@ enrichment_worker = EnrichmentWorker()
 
 # Include the API routes
 app.include_router(api_router, prefix="/api/v1")
+
+# Dashboard routes
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Serve the modern dashboard interface."""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_alt(request: Request):
+    """Alternative dashboard route."""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
 @app.on_event("startup")
 async def startup_event():
@@ -345,6 +364,111 @@ async def debug_enrichment(permit_id: int):
             status_code=500,
             detail=f"Debug enrichment failed: {str(e)}"
         )
+
+@app.get("/api/v1/reservoir-trends")
+async def get_reservoir_trends_api(
+    days: int = Query(default=90, description="Number of days to look back"),
+    reservoirs: str = Query(default="", description="Comma-separated list of specific reservoirs")
+):
+    """Get historical reservoir permit trends for charting."""
+    try:
+        reservoir_list = [r.strip() for r in reservoirs.split(",") if r.strip()] if reservoirs else None
+        trends_data = get_reservoir_trends(days_back=days, specific_reservoirs=reservoir_list)
+        
+        return {
+            "success": True,
+            "data": trends_data,
+            "days_back": days,
+            "total_reservoirs": len(trends_data.get("reservoirs", {}))
+        }
+        
+    except Exception as e:
+        logger.error(f"Reservoir trends error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch reservoir trends")
+
+@app.get("/api/v1/parsing/status")
+async def get_parsing_status():
+    """Get current parsing queue status and statistics."""
+    try:
+        from services.parsing.queue import parsing_queue
+        stats = parsing_queue.get_statistics()
+        
+        return {
+            "success": True,
+            "stats": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Parsing status error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch parsing status")
+
+@app.get("/api/v1/parsing/failed")
+async def get_failed_parsing_jobs(limit: int = Query(default=20, description="Number of failed jobs to return")):
+    """Get failed parsing jobs for manual review."""
+    try:
+        from services.parsing.queue import parsing_queue
+        failed_jobs = parsing_queue.get_failed_jobs(limit)
+        
+        # Convert jobs to serializable format
+        jobs_data = []
+        for job in failed_jobs:
+            jobs_data.append({
+                "permit_id": job.permit_id,
+                "status_no": job.status_no,
+                "status": job.status.value,
+                "attempt_count": job.attempt_count,
+                "error_message": job.error_message,
+                "last_attempt": job.last_attempt.isoformat() if job.last_attempt else None,
+                "confidence_score": job.confidence_score
+            })
+        
+        return {
+            "success": True,
+            "failed_jobs": jobs_data,
+            "total_count": len(failed_jobs)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed jobs error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch failed parsing jobs")
+
+@app.post("/api/v1/parsing/retry/{permit_id}")
+async def retry_parsing_job(permit_id: str):
+    """Manually retry a failed parsing job."""
+    try:
+        from services.parsing.queue import parsing_queue
+        success = parsing_queue.retry_job(permit_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Job {permit_id} queued for retry"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Job not found or not eligible for retry")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Retry job error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retry parsing job")
+
+@app.post("/api/v1/parsing/process")
+async def process_parsing_queue():
+    """Manually trigger parsing queue processing."""
+    try:
+        from services.parsing.worker import parsing_worker
+        await parsing_worker.process_queue(batch_size=5)
+        
+        return {
+            "success": True,
+            "message": "Parsing queue processed"
+        }
+        
+    except Exception as e:
+        logger.error(f"Process queue error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process parsing queue")
 
 if __name__ == "__main__":
     import uvicorn

@@ -6,7 +6,8 @@ import logging
 from typing import List, Dict, Any
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, desc, func, text
+from datetime import datetime, timedelta
 
 from .session import get_session
 from .models import Permit
@@ -25,9 +26,11 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     inserted_count = 0
     updated_count = 0
+    error_count = 0
     
     with get_session() as session:
         for item in items:
+            # Process each permit in its own transaction to prevent cascade failures
             try:
                 # Use status_no as primary identifier, fallback to permit_no for legacy data
                 primary_key = item.get('status_no') or item.get('permit_no')
@@ -35,51 +38,232 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
                     logger.warning(f"Skipping item without primary key: {item}")
                     continue
                 
+                # Remove any fields that don't exist in the current model
+                clean_item = {}
+                for field, value in item.items():
+                    if hasattr(Permit, field):
+                        clean_item[field] = value
+                    else:
+                        logger.debug(f"Skipping unknown field '{field}' for permit {primary_key}")
+                
                 # Check if permit already exists
                 existing_permit = session.query(Permit).filter(
                     Permit.status_no == primary_key
                 ).first()
                 
-                if not existing_permit and item.get('permit_no'):
+                if not existing_permit and clean_item.get('permit_no'):
                     # Fallback to legacy permit_no lookup
                     existing_permit = session.query(Permit).filter(
-                        Permit.permit_no == item.get('permit_no')
+                        Permit.permit_no == clean_item.get('permit_no')
                     ).first()
                 
                 if existing_permit:
-                    # Update existing permit
+                    # Update existing permit - always update key fields that might change
                     updated = False
-                    for field, value in item.items():
-                        if field not in ['status_no', 'permit_no'] and hasattr(existing_permit, field):
+                    
+                    # Fields that should always be updated when permit is refiled
+                    always_update_fields = [
+                        'filing_purpose', 'current_queue', 'amend', 'updated_at',
+                        'w1_parse_status', 'w1_parse_confidence', 'w1_text_snippet'
+                    ]
+                    
+                    for field, value in clean_item.items():
+                        if field not in ['id', 'status_no', 'permit_no', 'created_at'] and hasattr(existing_permit, field):
                             current_value = getattr(existing_permit, field)
-                            if current_value != value:
-                                setattr(existing_permit, field, value)
-                                updated = True
+                            
+                            # Always update certain fields, or update if value actually changed
+                            if (field in always_update_fields and value is not None) or (current_value != value):
+                                # Special handling for None values - don't overwrite existing data with None
+                                if value is not None or current_value is None:
+                                    setattr(existing_permit, field, value)
+                                    updated = True
+                                    logger.debug(f"Updated {field} for permit {primary_key}: {current_value} -> {value}")
                     
                     if updated:
+                        session.commit()  # Commit this update
                         updated_count += 1
-                        logger.debug(f"Updated permit: {primary_key}")
+                        logger.info(f"Updated permit: {primary_key}")
+                    else:
+                        logger.debug(f"No changes needed for permit: {primary_key}")
                 else:
                     # Insert new permit
-                    permit = Permit(**item)
+                    permit = Permit(**clean_item)
                     session.add(permit)
+                    session.commit()  # Commit this insert
                     inserted_count += 1
-                    logger.debug(f"Inserted new permit: {primary_key}")
+                    logger.info(f"Inserted new permit: {primary_key}")
                     
             except IntegrityError as e:
                 logger.warning(f"Integrity error for permit {primary_key}: {e}")
                 session.rollback()
+                error_count += 1
                 continue
             except Exception as e:
                 logger.error(f"Error processing permit {primary_key}: {e}")
+                session.rollback()
+                error_count += 1
                 continue
     
-    logger.info(f"Permit upsert completed: {inserted_count} inserted, {updated_count} updated")
-    return {"inserted": inserted_count, "updated": updated_count}
+    logger.info(f"Permit upsert completed: {inserted_count} inserted, {updated_count} updated, {error_count} errors")
+    return {"inserted": inserted_count, "updated": updated_count, "errors": error_count}
+
+
+def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = None) -> Dict[str, Any]:
+    """
+    Get historical reservoir permit trends for charting.
+    
+    Args:
+        days_back: Number of days to look back from today
+        specific_reservoirs: List of specific reservoir names to include
+        
+    Returns:
+        Dictionary with reservoir trend data formatted for Chart.js
+    """
+    with get_session() as session:
+        # Calculate the date range
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days_back)
+        
+        # Base query for permits with field names in the date range
+        base_query = session.query(Permit).filter(
+            and_(
+                Permit.status_date >= start_date,
+                Permit.status_date <= end_date,
+                Permit.field_name.isnot(None),
+                Permit.field_name != ''
+            )
+        )
+        
+        # If specific reservoirs requested, filter by them
+        if specific_reservoirs:
+            # Create a filter for field names that contain any of the specified reservoirs
+            reservoir_filters = []
+            for reservoir in specific_reservoirs:
+                reservoir_filters.append(Permit.field_name.ilike(f'%{reservoir}%'))
+            
+            if reservoir_filters:
+                from sqlalchemy import or_
+                base_query = base_query.filter(or_(*reservoir_filters))
+        
+        # Get all permits in the date range
+        permits = base_query.all()
+        
+        # Process permits to extract reservoir names and group by date
+        reservoir_data = {}
+        date_labels = []
+        
+        # Generate all dates in the range
+        current_date = start_date
+        while current_date <= end_date:
+            date_labels.append(current_date.strftime('%Y-%m-%d'))
+            current_date += timedelta(days=1)
+        
+        # Process each permit
+        for permit in permits:
+            if not permit.field_name:
+                continue
+                
+            # Extract reservoir name using similar logic to JavaScript
+            reservoir = extract_reservoir_name(permit.field_name)
+            
+            if reservoir not in reservoir_data:
+                reservoir_data[reservoir] = {date: 0 for date in date_labels}
+            
+            permit_date = permit.status_date.strftime('%Y-%m-%d')
+            if permit_date in reservoir_data[reservoir]:
+                reservoir_data[reservoir][permit_date] += 1
+        
+        # Format data for Chart.js
+        datasets = []
+        colors = [
+            '#3B82F6',  # Blue
+            '#10B981',  # Green
+            '#F59E0B',  # Yellow
+            '#EF4444',  # Red
+            '#8B5CF6',  # Purple
+            '#06B6D4',  # Cyan
+            '#F97316',  # Orange
+            '#84CC16',  # Lime
+            '#EC4899',  # Pink
+            '#6B7280',  # Gray
+        ]
+        
+        for i, (reservoir, daily_counts) in enumerate(reservoir_data.items()):
+            datasets.append({
+                'label': reservoir,
+                'data': [daily_counts[date] for date in date_labels],
+                'borderColor': colors[i % len(colors)],
+                'backgroundColor': colors[i % len(colors)] + '20',  # Add transparency
+                'tension': 0.4,
+                'fill': False,
+                'pointRadius': 3,
+                'pointHoverRadius': 6
+            })
+        
+        return {
+            'labels': date_labels,
+            'datasets': datasets,
+            'reservoirs': list(reservoir_data.keys()),
+            'date_range': {
+                'start': start_date.strftime('%Y-%m-%d'),
+                'end': end_date.strftime('%Y-%m-%d')
+            }
+        }
+
+
+def extract_reservoir_name(field_name: str) -> str:
+    """
+    Extract reservoir name from field name using similar logic to JavaScript.
+    """
+    if not field_name:
+        return 'UNKNOWN'
+    
+    import re
+    
+    # Predefined mappings (same as JavaScript)
+    mappings = {
+        'HAWKVILLE (AUSTIN CHALK)': 'AUSTIN CHALK',
+        'SPRABERRY (TREND AREA)': 'SPRABERRY',
+        'PHANTOM (WOLFCAMP)': 'WOLFCAMP',
+        'SUGARKANE (EAGLE FORD)': 'EAGLE FORD',
+        'EMMA (BARNETT SHALE)': 'BARNETT SHALE',
+        'EAGLE FORD': 'EAGLE FORD',
+        'WOLFCAMP': 'WOLFCAMP',
+        'AUSTIN CHALK': 'AUSTIN CHALK',
+        'BARNETT SHALE': 'BARNETT SHALE'
+    }
+    
+    # Check exact mappings first
+    if field_name in mappings:
+        return mappings[field_name]
+    
+    # Pattern matching
+    patterns = [
+        r'\(([^)]+)\)$',  # Pattern: "FIELD NAME (RESERVOIR NAME)"
+        r'^([A-Z\s]+)\s*\(',  # Pattern: "RESERVOIR NAME (ADDITIONAL INFO)"
+        r'^([A-Z\s]+)$'  # Pattern: Just the field name if no parentheses
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, field_name)
+        if match:
+            reservoir = match.group(1).strip()
+            
+            # Clean up common reservoir names
+            reservoir = re.sub(r'\bTREND\s+AREA\b', '', reservoir)
+            reservoir = re.sub(r'\bSHALE\b', 'SHALE', reservoir)
+            reservoir = re.sub(r'\bFORD\b', 'FORD', reservoir)
+            reservoir = re.sub(r'\bCHALK\b', 'CHALK', reservoir)
+            reservoir = re.sub(r'\bCAMP\b', 'CAMP', reservoir)
+            reservoir = reservoir.strip()
+            
+            return reservoir if reservoir else field_name
+    
+    return field_name
 
 def get_recent_permits(limit: int = 50) -> List[Dict[str, Any]]:
     """
-    Get recent permits ordered by creation date.
+    Get recent permits ordered by filing date, then creation date.
     
     Args:
         limit: Maximum number of permits to return
@@ -89,6 +273,7 @@ def get_recent_permits(limit: int = 50) -> List[Dict[str, Any]]:
     """
     with get_session() as session:
         permits = session.query(Permit).order_by(
+            Permit.status_date.desc(),
             Permit.created_at.desc()
         ).limit(limit).all()
         

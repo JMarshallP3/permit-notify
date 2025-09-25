@@ -28,6 +28,8 @@ COPY services/ ./services/
 COPY db/ ./db/
 COPY tools/ ./tools/
 COPY alembic/ ./alembic/
+COPY static/ ./static/
+COPY templates/ ./templates/
 COPY alembic.ini ./
 COPY well_number_extractor.py ./
 
