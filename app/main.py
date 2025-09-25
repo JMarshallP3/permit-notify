@@ -368,18 +368,36 @@ async def debug_enrichment(permit_id: int):
 @app.get("/api/v1/reservoir-trends")
 async def get_reservoir_trends_api(
     days: int = Query(default=90, description="Number of days to look back"),
-    reservoirs: str = Query(default="", description="Comma-separated list of specific reservoirs")
+    reservoirs: str = Query(default="", description="Comma-separated list of specific reservoirs"),
+    view_type: str = Query(default="daily", description="View type: 'daily' or 'cumulative'"),
+    mappings: str = Query(default="", description="JSON string of reservoir mappings")
 ):
     """Get historical reservoir permit trends for charting."""
     try:
         reservoir_list = [r.strip() for r in reservoirs.split(",") if r.strip()] if reservoirs else None
-        trends_data = get_reservoir_trends(days_back=days, specific_reservoirs=reservoir_list)
+        
+        # Parse reservoir mappings if provided
+        reservoir_mappings = {}
+        if mappings:
+            import json
+            try:
+                reservoir_mappings = json.loads(mappings)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON in mappings parameter: {mappings}")
+        
+        trends_data = get_reservoir_trends(
+            days_back=days, 
+            specific_reservoirs=reservoir_list, 
+            view_type=view_type,
+            reservoir_mappings=reservoir_mappings
+        )
         
         return {
             "success": True,
             "data": trends_data,
             "days_back": days,
-            "total_reservoirs": len(trends_data.get("reservoirs", {}))
+            "total_reservoirs": len(trends_data.get("reservoirs", {})),
+            "view_type": view_type
         }
         
     except Exception as e:
@@ -390,6 +408,7 @@ async def get_reservoir_trends_api(
 async def get_parsing_status():
     """Get current parsing queue status and statistics."""
     try:
+        # Import here to avoid initialization issues
         from services.parsing.queue import parsing_queue
         stats = parsing_queue.get_statistics()
         
@@ -401,12 +420,28 @@ async def get_parsing_status():
         
     except Exception as e:
         logger.error(f"Parsing status error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch parsing status")
+        # Return default stats instead of failing completely
+        return {
+            "success": True,
+            "stats": {
+                "total_jobs": 0,
+                "pending": 0,
+                "in_progress": 0,
+                "success": 0,
+                "failed": 0,
+                "manual_review": 0,
+                "success_rate": 0.0,
+                "avg_confidence": 0.0
+            },
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 @app.get("/api/v1/parsing/failed")
 async def get_failed_parsing_jobs(limit: int = Query(default=20, description="Number of failed jobs to return")):
     """Get failed parsing jobs for manual review."""
     try:
+        # Import here to avoid initialization issues
         from services.parsing.queue import parsing_queue
         failed_jobs = parsing_queue.get_failed_jobs(limit)
         
@@ -431,12 +466,19 @@ async def get_failed_parsing_jobs(limit: int = Query(default=20, description="Nu
         
     except Exception as e:
         logger.error(f"Failed jobs error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch failed parsing jobs")
+        # Return empty results instead of failing completely
+        return {
+            "success": True,
+            "failed_jobs": [],
+            "total_count": 0,
+            "error": str(e)
+        }
 
 @app.post("/api/v1/parsing/retry/{permit_id}")
 async def retry_parsing_job(permit_id: str):
     """Manually retry a failed parsing job."""
     try:
+        # Import here to avoid initialization issues
         from services.parsing.queue import parsing_queue
         success = parsing_queue.retry_job(permit_id)
         
@@ -446,18 +488,23 @@ async def retry_parsing_job(permit_id: str):
                 "message": f"Job {permit_id} queued for retry"
             }
         else:
-            raise HTTPException(status_code=404, detail="Job not found or not eligible for retry")
+            return {
+                "success": False,
+                "message": "Job not found or not eligible for retry"
+            }
             
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Retry job error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retry parsing job")
+        return {
+            "success": False,
+            "message": f"Failed to retry parsing job: {str(e)}"
+        }
 
 @app.post("/api/v1/parsing/process")
 async def process_parsing_queue():
     """Manually trigger parsing queue processing."""
     try:
+        # Import here to avoid initialization issues
         from services.parsing.worker import parsing_worker
         await parsing_worker.process_queue(batch_size=5)
         
@@ -468,7 +515,10 @@ async def process_parsing_queue():
         
     except Exception as e:
         logger.error(f"Process queue error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process parsing queue")
+        return {
+            "success": False,
+            "message": f"Failed to process parsing queue: {str(e)}"
+        }
 
 if __name__ == "__main__":
     import uvicorn

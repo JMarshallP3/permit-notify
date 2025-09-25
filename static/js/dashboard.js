@@ -1383,6 +1383,14 @@ class PermitDashboard {
                 </div>
                 
                 <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <label style="font-weight: 500; color: var(--text-primary);">View:</label>
+                    <select id="chartViewSelect" style="padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 0.375rem; min-width: 150px;">
+                        <option value="daily">Daily Trends</option>
+                        <option value="cumulative">Cumulative Total</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
                     <button id="refreshChart" style="padding: 0.5rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
                         🔄 Refresh
                     </button>
@@ -1415,6 +1423,10 @@ class PermitDashboard {
         
         // Add event listeners
         document.getElementById('timeRangeSelect').addEventListener('change', () => {
+            this.updateReservoirChart(specificReservoir);
+        });
+        
+        document.getElementById('chartViewSelect').addEventListener('change', () => {
             this.updateReservoirChart(specificReservoir);
         });
         
@@ -1458,9 +1470,14 @@ class PermitDashboard {
         
             try {
                 const days = document.getElementById('timeRangeSelect').value;
+                const viewType = document.getElementById('chartViewSelect')?.value || 'daily';
+                
+                // Include reservoir mappings in the request
+                const mappingsParam = encodeURIComponent(JSON.stringify(this.reservoirMapping));
+                
                 const url = specificReservoir 
-                    ? `/api/v1/reservoir-trends?days=${days}&reservoirs=${encodeURIComponent(specificReservoir)}`
-                    : `/api/v1/reservoir-trends?days=${days}`;
+                    ? `/api/v1/reservoir-trends?days=${days}&reservoirs=${encodeURIComponent(specificReservoir)}&view_type=${viewType}&mappings=${mappingsParam}`
+                    : `/api/v1/reservoir-trends?days=${days}&view_type=${viewType}&mappings=${mappingsParam}`;
                 
                 console.log('Fetching reservoir trends from:', url);
             
@@ -1502,7 +1519,9 @@ class PermitDashboard {
                     plugins: {
                         title: {
                             display: true,
-                            text: specificReservoir ? `${specificReservoir} Activity Trends` : 'All Reservoir Activity Trends',
+                            text: specificReservoir 
+                                ? `${specificReservoir} ${viewType === 'cumulative' ? 'Cumulative' : 'Daily'} Activity`
+                                : `All Reservoir ${viewType === 'cumulative' ? 'Cumulative' : 'Daily'} Activity`,
                             font: {
                                 size: 16,
                                 weight: 'bold'
@@ -1529,7 +1548,8 @@ class PermitDashboard {
                                     });
                                 },
                                 label: function(context) {
-                                    return `${context.dataset.label}: ${context.parsed.y} permits`;
+                                    const labelText = viewType === 'cumulative' ? 'total permits' : 'permits';
+                                    return `${context.dataset.label}: ${context.parsed.y} ${labelText}`;
                                 }
                             }
                         }
@@ -1552,7 +1572,7 @@ class PermitDashboard {
                             display: true,
                             title: {
                                 display: true,
-                                text: 'Number of Permits',
+                                text: viewType === 'cumulative' ? 'Cumulative Permits' : 'Number of Permits',
                                 font: {
                                     weight: 'bold'
                                 }
@@ -1826,6 +1846,23 @@ class PermitDashboard {
             
             if (statsData.success) {
                 this.renderDetailedParsingStats(statsData.stats);
+                
+                // Show error message if there was an issue loading stats
+                if (statsData.error) {
+                    console.warn('Parsing stats loaded with error:', statsData.error);
+                }
+            } else {
+                console.error('Failed to load parsing stats:', statsData);
+                this.renderDetailedParsingStats({
+                    total_jobs: 0,
+                    pending: 0,
+                    in_progress: 0,
+                    success: 0,
+                    failed: 0,
+                    manual_review: 0,
+                    success_rate: 0.0,
+                    avg_confidence: 0.0
+                });
             }
             
             // Load failed jobs
@@ -1833,11 +1870,31 @@ class PermitDashboard {
             const failedData = await failedResponse.json();
             
             if (failedData.success) {
-                this.renderFailedJobs(failedData.failed_jobs);
+                this.renderFailedJobs(failedData.failed_jobs || []);
+                
+                // Show error message if there was an issue loading failed jobs
+                if (failedData.error) {
+                    console.warn('Failed jobs loaded with error:', failedData.error);
+                }
+            } else {
+                console.error('Failed to load failed jobs:', failedData);
+                this.renderFailedJobs([]);
             }
             
         } catch (error) {
             console.error('Error loading parsing dashboard data:', error);
+            // Render empty state
+            this.renderDetailedParsingStats({
+                total_jobs: 0,
+                pending: 0,
+                in_progress: 0,
+                success: 0,
+                failed: 0,
+                manual_review: 0,
+                success_rate: 0.0,
+                avg_confidence: 0.0
+            });
+            this.renderFailedJobs([]);
         }
     }
     
@@ -1929,10 +1986,10 @@ class PermitDashboard {
             const data = await response.json();
             
             if (data.success) {
-                this.showSuccess('Parsing queue processed successfully');
+                this.showSuccess(data.message || 'Parsing queue processed successfully');
                 await this.loadParsingDashboardData();
             } else {
-                this.showError('Failed to process parsing queue');
+                this.showError(data.message || 'Failed to process parsing queue');
             }
             
         } catch (error) {
@@ -1953,10 +2010,10 @@ class PermitDashboard {
             const data = await response.json();
             
             if (data.success) {
-                this.showSuccess(`Job ${permitId} queued for retry`);
+                this.showSuccess(data.message || `Job ${permitId} queued for retry`);
                 await this.loadParsingDashboardData();
             } else {
-                this.showError('Failed to retry parsing job');
+                this.showError(data.message || 'Failed to retry parsing job');
             }
             
         } catch (error) {

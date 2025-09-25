@@ -1,0 +1,16 @@
+2025-09-25 10:34:07,910 - INFO - Initialized scraper scheduler:
+2025-09-25 10:34:07,911 - INFO -   - Interval: 1 minutes
+2025-09-25 10:34:07,911 - INFO -   - Hours: 7:00 - 18:00
+2025-09-25 10:34:07,911 - INFO -   - API URL: http://localhost:8000/w1/search
+2025-09-25 10:34:18,642 - INFO - Initialized scraper scheduler:
+2025-09-25 10:34:18,642 - INFO -   - Interval: 1 minutes
+2025-09-25 10:34:18,643 - INFO -   - Hours: 7:00 - 18:00
+2025-09-25 10:34:18,643 - INFO -   - API URL: http://localhost:8000/w1/search
+2025-09-25 10:34:18,643 - INFO - Starting automated permit scraper...
+2025-09-25 10:34:18,643 - INFO - Scheduler started - will scrape every 1 minutes during business hours
+2025-09-25 10:34:18,643 - INFO - Running initial scrape...
+2025-09-25 10:34:18,643 - INFO - Starting scrape #1 for 09/25/2025
+2025-09-25 10:34:23,335 - INFO - Scrape successful:
+2025-09-25 10:34:23,335 - INFO -   - Found: 22 permits
+2025-09-25 10:34:23,335 - INFO -   - Inserted: 0 new
+2025-09-25 10:34:23,337 - INFO -   - Updated: 0 existing

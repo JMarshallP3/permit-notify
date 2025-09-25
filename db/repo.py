@@ -108,13 +108,15 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
     return {"inserted": inserted_count, "updated": updated_count, "errors": error_count}
 
 
-def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = None) -> Dict[str, Any]:
+def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = None, view_type: str = "daily", reservoir_mappings: Dict[str, str] = None) -> Dict[str, Any]:
     """
     Get historical reservoir permit trends for charting.
     
     Args:
         days_back: Number of days to look back from today
         specific_reservoirs: List of specific reservoir names to include
+        view_type: View type - "daily" for daily counts or "cumulative" for cumulative counts
+        reservoir_mappings: Dictionary of field_name -> reservoir_name mappings from frontend
         
     Returns:
         Dictionary with reservoir trend data formatted for Chart.js
@@ -163,8 +165,11 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
             if not permit.field_name:
                 continue
                 
-            # Extract reservoir name using similar logic to JavaScript
-            reservoir = extract_reservoir_name(permit.field_name)
+            # Use provided mappings first, then fall back to extraction logic
+            if reservoir_mappings and permit.field_name in reservoir_mappings:
+                reservoir = reservoir_mappings[permit.field_name]
+            else:
+                reservoir = extract_reservoir_name(permit.field_name)
             
             if reservoir not in reservoir_data:
                 reservoir_data[reservoir] = {date: 0 for date in date_labels}
@@ -189,9 +194,23 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
         ]
         
         for i, (reservoir, daily_counts) in enumerate(reservoir_data.items()):
+            # Get daily data
+            daily_data = [daily_counts[date] for date in date_labels]
+            
+            # Calculate cumulative data if requested
+            if view_type == "cumulative":
+                cumulative_data = []
+                running_total = 0
+                for count in daily_data:
+                    running_total += count
+                    cumulative_data.append(running_total)
+                chart_data = cumulative_data
+            else:
+                chart_data = daily_data
+            
             datasets.append({
                 'label': reservoir,
-                'data': [daily_counts[date] for date in date_labels],
+                'data': chart_data,
                 'borderColor': colors[i % len(colors)],
                 'backgroundColor': colors[i % len(colors)] + '20',  # Add transparency
                 'tension': 0.4,
