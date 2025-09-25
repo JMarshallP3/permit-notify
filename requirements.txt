@@ -61,6 +61,7 @@ wsproto==1.2.0
 yarl==1.20.1
 pytest==7.4.3
 psycopg[binary]>=3.1.0
+psycopg2-binary>=2.9.0
 alembic>=1.12
 playwright>=1.47.0
 pdfminer.six>=20221105
@@ -68,3 +69,5 @@ nest-asyncio>=1.5.0
 schedule>=1.2.0
 jinja2>=3.1.0
 python-multipart>=0.0.6
+pandas>=2.0.0
+openpyxl>=3.1.0
