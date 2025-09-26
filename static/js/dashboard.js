@@ -439,10 +439,12 @@ class PermitDashboard {
         return this.permits
             .filter(permit => permit.field_name === fieldName)
             .map(permit => ({
+                id: permit.id, // Include the permit ID
                 status_no: permit.status_no,
                 lease_name: permit.lease_name,
                 county: permit.county,
-                detail_url: permit.detail_url
+                detail_url: permit.detail_url,
+                status_date: permit.status_date // Also include status_date for display
             }))
             .slice(0, 3); // Limit to first 3 permits
     }
