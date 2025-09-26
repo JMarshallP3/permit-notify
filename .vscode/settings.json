@@ -1,0 +1,10 @@
+{
+    "python.defaultInterpreterPath": "C:\\Python312\\python.exe",
+    "python.terminal.activateEnvironment": false,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    "python.analysis.extraPaths": [
+        "C:\\Users\\Marshall\\AppData\\Roaming\\Python\\Python312\\site-packages"
+    ]
+}
