@@ -3319,6 +3319,61 @@ class EnhancedDashboard extends PermitDashboard {
         return '';
     }
 
+    // Mobile button functions
+    refreshData() {
+        this.loadPermits();
+        this.showMobileToast('🔄 Data refreshed', 'success');
+    }
+
+    showReservoirManagement() {
+        // Create and show reservoir management modal
+        const modal = this.createModal('Reservoir Management', this.generateReservoirManagementContent());
+        document.body.appendChild(modal);
+        modal.style.display = 'flex';
+        // Switch to review tab by default
+        setTimeout(() => {
+            const reviewTab = modal.querySelector('[data-tab="review"]');
+            if (reviewTab) reviewTab.click();
+        }, 100);
+    }
+
+    generateReservoirManagementContent() {
+        return `
+            <div class="reservoir-management-modal">
+                <div class="reservoir-tabs">
+                    <button class="reservoir-tab active" data-tab="review">Under Review</button>
+                    <button class="reservoir-tab" data-tab="saved">Saved Mappings</button>
+                </div>
+                <div class="reservoir-content">
+                    <div class="reservoir-tab-content active" data-content="review">
+                        <div id="modal-review-queue"></div>
+                    </div>
+                    <div class="reservoir-tab-content" data-content="saved">
+                        <div id="modal-saved-mappings"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    exportPermits() {
+        // Trigger export functionality
+        if (typeof this.exportToExcel === 'function') {
+            this.exportToExcel();
+        } else {
+            // Fallback: download as JSON
+            const dataStr = JSON.stringify(this.permits, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'permits_export.json';
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+        this.showMobileToast('📤 Export started', 'info');
+    }
+
     // Mobile-specific functions
     showTopReservoirs() {
         // Create and show top reservoirs modal
@@ -3500,7 +3555,7 @@ class EnhancedDashboard extends PermitDashboard {
                     <div class="permit-info-row">
                         <span class="permit-label">Reservoir</span>
                         <span class="permit-value reservoir-name" data-field="${permit.field_name}">
-                            ${this.extractReservoir(permit)}
+                            ${this.extractReservoir(permit.field_name)}
                         </span>
                     </div>
                 </div>
