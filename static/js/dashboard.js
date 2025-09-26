@@ -478,7 +478,20 @@ class PermitDashboard {
     // Helper function to get permit ID by status number
     getPermitIdByStatusNo(statusNo) {
         const permit = this.permits.find(p => p.status_no === statusNo);
-        return permit ? permit.id : null;
+        if (permit && permit.id) {
+            return permit.id;
+        }
+        
+        // If not found in main permits list, try to find in review queue permits
+        for (const item of this.reviewQueue) {
+            const reviewPermit = item.permits.find(p => p.status_no === statusNo);
+            if (reviewPermit && reviewPermit.id) {
+                return reviewPermit.id;
+            }
+        }
+        
+        console.warn(`Could not find permit ID for status ${statusNo}`);
+        return null;
     }
     
     // Helper function to apply reservoir correction (used by both manual and AI suggestion)
@@ -566,8 +579,9 @@ class PermitDashboard {
     // Accept a reservoir name as correct and move to saved mappings
     async acceptCorrectReservoir(currentFieldName, suggestedReservoir, statusNo) {
         try {
-            // Add to saved mappings
-            this.addToSavedMappings(currentFieldName, suggestedReservoir);
+            // When accepting, we're saying the CURRENT field name is correct
+            // So we save the current field name as the correct mapping
+            this.addToSavedMappings(currentFieldName, currentFieldName);
             
             // Remove this specific permit from review queue
             this.removeSinglePermitFromReview(currentFieldName, statusNo);
@@ -575,7 +589,7 @@ class PermitDashboard {
             // Show success message
             const successMsg = document.createElement('div');
             successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
-            successMsg.textContent = `✅ Accepted "${suggestedReservoir}" as correct for permit ${statusNo}`;
+            successMsg.textContent = `✅ Accepted "${currentFieldName}" as correct for permit ${statusNo}`;
             document.body.appendChild(successMsg);
             
             // Refresh tabs
@@ -629,13 +643,21 @@ class PermitDashboard {
         document.body.appendChild(loadingMsg);
         
         try {
+            const permitId = permit.id || this.getPermitIdByStatusNo(permit.status_no);
+            
+            if (!permitId) {
+                document.body.removeChild(loadingMsg);
+                alert(`Cannot find permit ID for status ${permit.status_no}. Please refresh the page and try again.`);
+                return;
+            }
+            
             const response = await fetch('/api/v1/field-corrections/correct', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    permit_id: permit.id || this.getPermitIdByStatusNo(permit.status_no),
+                    permit_id: permitId,
                     status_no: permit.status_no,
                     wrong_field: permit.currentFieldName,
                     correct_field: correctReservoir,
@@ -665,7 +687,9 @@ class PermitDashboard {
                 }, 2000);
                 
             } else {
-                alert('Failed to correct permit');
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.detail || `HTTP ${response.status}: ${response.statusText}`;
+                alert(`Failed to correct permit: ${errorMessage}`);
             }
             
         } catch (error) {
