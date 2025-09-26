@@ -15,20 +15,26 @@ RAILWAY_DATABASE_URL = "postgresql+psycopg://postgres:PASSWORD@HOST:PORT/railway
 def export_from_railway():
     """Export permits from Railway database."""
     
-    # You can get your Railway DATABASE_URL from:
-    # 1. Railway dashboard -> Your project -> Variables tab
-    # 2. Or from railway CLI: railway variables
+    # Use the provided Railway DATABASE_URL
+    database_url = "postgresql://postgres:NqDqZtOjqEHJonvpmBtMkVtsalEkeXxF@postgres.railway.internal:5432/railway"
     
-    database_url = input("Enter your Railway DATABASE_URL (or press Enter to skip): ").strip()
-    
-    if not database_url:
-        print("💡 To get your Railway DATABASE_URL:")
-        print("   1. Go to Railway dashboard")
-        print("   2. Open your permit-notify project")
-        print("   3. Go to Variables tab")
-        print("   4. Copy the DATABASE_URL value")
-        print("   5. Run this script again and paste it")
-        return
+    # Convert internal Railway URL to external accessible URL
+    # Railway internal URLs need to be converted for external access
+    if "postgres.railway.internal" in database_url:
+        # You'll need to get the external host from Railway dashboard
+        print("⚠️  Internal Railway URL detected")
+        print("💡 Please get the external DATABASE_URL from Railway dashboard:")
+        print("   1. Go to Railway dashboard -> Your project")
+        print("   2. Click on PostgreSQL service")
+        print("   3. Go to Connect tab")
+        print("   4. Copy the 'Public Network' connection string")
+        
+        external_url = input("Enter the external DATABASE_URL: ").strip()
+        if external_url:
+            database_url = external_url
+        else:
+            print("❌ Cannot connect to internal Railway URL from external network")
+            return
     
     try:
         # Temporarily set the DATABASE_URL

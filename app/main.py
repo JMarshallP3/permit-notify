@@ -14,6 +14,7 @@ from services.scraper.rrc_w1 import RRCW1Client, EngineRedirectToLogin
 from services.enrichment.worker import EnrichmentWorker, run_once
 from services.enrichment.detail_parser import parse_detail_page
 from services.enrichment.pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
+from services.field_learning import field_learning
 from db.models import Permit
 from db.session import Base, engine
 from db.repo import upsert_permits, get_recent_permits, get_reservoir_trends
@@ -915,6 +916,109 @@ async def process_parsing_queue():
             "success": False,
             "message": f"Failed to process parsing queue: {str(e)}"
         }
+
+@app.post("/api/v1/field-corrections/correct")
+async def correct_field_name(request_data: dict):
+    """
+    Record a field name correction for learning.
+    Expected payload: {
+        "permit_id": 123,
+        "status_no": "910767",
+        "wrong_field": "LEASE NAME ABC",
+        "correct_field": "SPRABERRY (TREND AREA)",
+        "detail_url": "https://...",
+        "html_context": "..."
+    }
+    """
+    try:
+        permit_id = request_data.get("permit_id")
+        status_no = request_data.get("status_no")
+        wrong_field = request_data.get("wrong_field")
+        correct_field = request_data.get("correct_field")
+        detail_url = request_data.get("detail_url")
+        html_context = request_data.get("html_context")
+        
+        if not all([permit_id, status_no, wrong_field, correct_field]):
+            raise HTTPException(status_code=400, detail="permit_id, status_no, wrong_field, and correct_field are required")
+        
+        # Record the correction
+        success = field_learning.record_correction(
+            permit_id=permit_id,
+            status_no=status_no,
+            wrong_field=wrong_field,
+            correct_field=correct_field,
+            detail_url=detail_url,
+            html_context=html_context
+        )
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Field name corrected: '{wrong_field}' → '{correct_field}'",
+                "status_no": status_no
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to record correction")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Field correction error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to record correction: {str(e)}")
+
+@app.get("/api/v1/field-corrections/suggest/{permit_id}")
+async def suggest_field_name(permit_id: int):
+    """Get field name suggestion based on learned patterns."""
+    try:
+        from db.session import get_session
+        from db.models import Permit
+        
+        with get_session() as session:
+            permit = session.query(Permit).filter(Permit.id == permit_id).first()
+            if not permit:
+                raise HTTPException(status_code=404, detail="Permit not found")
+            
+            suggestion = field_learning.suggest_field_name(
+                permit.field_name,
+                permit.lease_name,
+                permit.operator_name
+            )
+            
+            return {
+                "permit_id": permit_id,
+                "status_no": permit.status_no,
+                "current_field": permit.field_name,
+                "suggested_field": suggestion,
+                "has_suggestion": suggestion is not None
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Field suggestion error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get suggestion: {str(e)}")
+
+@app.get("/api/v1/field-corrections/stats")
+async def get_correction_stats():
+    """Get statistics about field name corrections."""
+    try:
+        stats = field_learning.get_correction_stats()
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Correction stats error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+
+@app.post("/api/v1/field-corrections/apply-learned")
+async def apply_learned_corrections(limit: int = 20):
+    """Apply learned corrections to similar permits."""
+    try:
+        result = field_learning.apply_learned_corrections(limit=limit)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Apply corrections error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to apply corrections: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

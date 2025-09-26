@@ -317,6 +317,14 @@ class PermitDashboard {
                             📄 No URL Available
                         </button>
                     `}
+                    <button onclick="window.dashboard.correctFieldName(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                            class="btn-correct-field" title="Correct field name and teach the system">
+                        🎯 Correct Field
+                    </button>
+                    <button onclick="window.dashboard.getSuggestion(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                            class="btn-ai-suggest" title="Get AI suggestion based on learned patterns">
+                        🤖 AI Suggest
+                    </button>
                     <button class="btn-dismiss" data-permit-id="${permit.status_no}">
                         Dismiss
                     </button>
@@ -445,6 +453,154 @@ class PermitDashboard {
                 detail_url: permit.detail_url
             }))
             .slice(0, 3); // Limit to first 3 permits
+    }
+    
+    // Field Name Learning System
+    async correctFieldName(permit) {
+        try {
+            const correctField = prompt(
+                `🎯 FIELD NAME CORRECTION\n\n` +
+                `Permit: ${permit.status_no} (${permit.lease_name})\n` +
+                `Current Field: "${permit.field_name}"\n\n` +
+                `Enter the CORRECT geological field name:`
+            );
+            
+            if (!correctField || correctField.trim() === '') {
+                return;
+            }
+            
+            if (correctField.trim() === permit.field_name) {
+                this.showInfo('Field name is already correct');
+                return;
+            }
+            
+            // Show loading
+            this.showInfo('🤖 Recording field name correction...');
+            
+            // Record the correction
+            const response = await fetch('/api/v1/field-corrections/correct', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    permit_id: permit.id,
+                    status_no: permit.status_no,
+                    wrong_field: permit.field_name,
+                    correct_field: correctField.trim(),
+                    detail_url: permit.detail_url
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.showSuccess(`✅ Field name corrected! System learned: "${permit.field_name}" → "${correctField}"`);
+                
+                // Refresh permit data to show the correction
+                setTimeout(() => {
+                    this.loadPermitData();
+                }, 1500);
+                
+            } else {
+                const error = await response.json();
+                this.showError(`Failed to record correction: ${error.detail || 'Unknown error'}`);
+            }
+            
+        } catch (error) {
+            console.error('Field correction error:', error);
+            this.showError(`Error recording correction: ${error.message}`);
+        }
+    }
+    
+    async getSuggestion(permit) {
+        try {
+            this.showInfo('🤖 Getting AI suggestion...');
+            
+            const response = await fetch(`/api/v1/field-corrections/suggest/${permit.id}`);
+            
+            if (response.ok) {
+                const result = await response.json();
+                
+                if (result.has_suggestion) {
+                    const usesSuggestion = confirm(
+                        `🤖 AI SUGGESTION\n\n` +
+                        `Permit: ${permit.status_no}\n` +
+                        `Current: "${result.current_field}"\n` +
+                        `Suggested: "${result.suggested_field}"\n\n` +
+                        `Use this suggestion?`
+                    );
+                    
+                    if (usesSuggestion) {
+                        // Apply the suggestion
+                        const response = await fetch('/api/v1/field-corrections/correct', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                permit_id: permit.id,
+                                status_no: permit.status_no,
+                                wrong_field: result.current_field,
+                                correct_field: result.suggested_field,
+                                detail_url: permit.detail_url
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            this.showSuccess(`✅ Applied AI suggestion: "${result.suggested_field}"`);
+                            setTimeout(() => this.loadPermitData(), 1500);
+                        } else {
+                            this.showError('Failed to apply suggestion');
+                        }
+                    }
+                } else {
+                    this.showInfo('🤖 No AI suggestion available for this permit');
+                }
+                
+            } else {
+                this.showError('Failed to get AI suggestion');
+            }
+            
+        } catch (error) {
+            console.error('Suggestion error:', error);
+            this.showError(`Error getting suggestion: ${error.message}`);
+        }
+    }
+    
+    async applyLearnedCorrections() {
+        try {
+            const confirmed = confirm(
+                '🤖 APPLY LEARNED CORRECTIONS\n\n' +
+                'This will automatically apply previously learned field name corrections to similar permits.\n\n' +
+                'Continue?'
+            );
+            
+            if (!confirmed) return;
+            
+            this.showInfo('🤖 Applying learned corrections...');
+            
+            const response = await fetch('/api/v1/field-corrections/apply-learned', {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                
+                if (result.corrected > 0) {
+                    this.showSuccess(`✅ Applied corrections to ${result.corrected} permits!`);
+                    setTimeout(() => this.loadPermitData(), 2000);
+                } else {
+                    this.showInfo('No permits needed corrections');
+                }
+                
+            } else {
+                this.showError('Failed to apply learned corrections');
+            }
+            
+        } catch (error) {
+            console.error('Apply corrections error:', error);
+            this.showError(`Error applying corrections: ${error.message}`);
+        }
     }
     
     removeFromReviewQueue(fieldName) {
