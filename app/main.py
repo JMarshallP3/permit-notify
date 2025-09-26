@@ -81,8 +81,8 @@ async def startup_event():
         # Don't raise - just log the error
         pass
 
-@app.get("/")
-async def root():
+@app.get("/api/status")
+async def api_status():
     return {"message": "Permit Notify API running"}
 
 @app.get("/health")
