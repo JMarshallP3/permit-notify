@@ -317,14 +317,6 @@ class PermitDashboard {
                             📄 No URL Available
                         </button>
                     `}
-                    <button onclick="window.dashboard.correctFieldName(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
-                            class="btn-correct-field" title="Correct field name and teach the system">
-                        🎯 Correct Field
-                    </button>
-                    <button onclick="window.dashboard.getSuggestion(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
-                            class="btn-ai-suggest" title="Get AI suggestion based on learned patterns">
-                        🤖 AI Suggest
-                    </button>
                     <button class="btn-dismiss" data-permit-id="${permit.status_no}">
                         Dismiss
                     </button>
@@ -455,149 +447,194 @@ class PermitDashboard {
             .slice(0, 3); // Limit to first 3 permits
     }
     
-    // Field Name Learning System
-    async correctFieldName(permit) {
+    // Reservoir Name Learning System - Integrated with Reservoir Management
+    async correctReservoirName(wrongReservoirName, permits) {
         try {
-            const correctField = prompt(
-                `🎯 FIELD NAME CORRECTION\n\n` +
-                `Permit: ${permit.status_no} (${permit.lease_name})\n` +
-                `Current Field: "${permit.field_name}"\n\n` +
-                `Enter the CORRECT geological field name:`
+            const correctReservoir = prompt(
+                `🎯 RESERVOIR CORRECTION\n\n` +
+                `Current Reservoir: "${wrongReservoirName}"\n` +
+                `Affects ${permits.length} permit${permits.length !== 1 ? 's' : ''}\n\n` +
+                `Enter the CORRECT geological reservoir name:`
             );
             
-            if (!correctField || correctField.trim() === '') {
+            if (!correctReservoir || correctReservoir.trim() === '') {
                 return;
             }
             
-            if (correctField.trim() === permit.field_name) {
-                alert('Field name is already correct');
+            if (correctReservoir.trim() === wrongReservoirName) {
+                alert('Reservoir name is already correct');
                 return;
             }
             
-            // Show loading message
-            const loadingMsg = document.createElement('div');
-            loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
-            loadingMsg.textContent = '🤖 Recording field name correction...';
-            document.body.appendChild(loadingMsg);
-            
-            // Record the correction
-            const response = await fetch('/api/v1/field-corrections/correct', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    permit_id: permit.id,
-                    status_no: permit.status_no,
-                    wrong_field: permit.field_name,
-                    correct_field: correctField.trim(),
-                    detail_url: permit.detail_url
-                })
-            });
-            
-            document.body.removeChild(loadingMsg);
-            
-            if (response.ok) {
-                const result = await response.json();
-                
-                // Show success message
-                const successMsg = document.createElement('div');
-                successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
-                successMsg.textContent = `✅ Field name corrected! System learned: "${permit.field_name}" → "${correctField}"`;
-                document.body.appendChild(successMsg);
-                
-                // Refresh permit data to show the correction
-                setTimeout(() => {
-                    document.body.removeChild(successMsg);
-                    window.location.reload(); // Refresh to show updated data
-                }, 2000);
-                
-            } else {
-                const error = await response.json();
-                alert(`Failed to record correction: ${error.detail || 'Unknown error'}`);
-            }
+            // Use the helper function to apply the correction
+            await this.applyReservoirCorrection(wrongReservoirName, permits, correctReservoir.trim());
             
         } catch (error) {
-            console.error('Field correction error:', error);
+            console.error('Reservoir correction error:', error);
             alert(`Error recording correction: ${error.message}`);
         }
     }
     
-    async getSuggestion(permit) {
+    // Helper function to get permit ID by status number
+    getPermitIdByStatusNo(statusNo) {
+        const permit = this.permits.find(p => p.status_no === statusNo);
+        return permit ? permit.id : null;
+    }
+    
+    // Helper function to apply reservoir correction (used by both manual and AI suggestion)
+    async applyReservoirCorrection(wrongReservoirName, permits, correctReservoir) {
+        // Show loading message
+        const loadingMsg = document.createElement('div');
+        loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+        loadingMsg.textContent = `🤖 Correcting reservoir for ${permits.length} permits...`;
+        document.body.appendChild(loadingMsg);
+        
+        let successCount = 0;
+        
+        // Correct each permit
+        for (const permit of permits) {
+            try {
+                const response = await fetch('/api/v1/field-corrections/correct', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        permit_id: permit.id || this.getPermitIdByStatusNo(permit.status_no),
+                        status_no: permit.status_no,
+                        wrong_field: wrongReservoirName,
+                        correct_field: correctReservoir,
+                        detail_url: permit.detail_url
+                    })
+                });
+                
+                if (response.ok) {
+                    successCount++;
+                }
+            } catch (error) {
+                console.error(`Error correcting permit ${permit.status_no}:`, error);
+            }
+        }
+        
+        document.body.removeChild(loadingMsg);
+        
+        if (successCount > 0) {
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            successMsg.textContent = `✅ Corrected ${successCount} permits! "${wrongReservoirName}" → "${correctReservoir}"`;
+            document.body.appendChild(successMsg);
+            
+            // Remove from review queue and add to saved mappings
+            this.removeFromReviewQueue(wrongReservoirName);
+            this.addToSavedMappings(wrongReservoirName, correctReservoir);
+            
+            // Refresh tabs and permit data
+            setTimeout(() => {
+                document.body.removeChild(successMsg);
+                this.loadPermitData();
+                this.updateReviewQueueDisplay();
+                this.updateSavedMappingsDisplay();
+            }, 2000);
+            
+        } else {
+            alert('Failed to correct any permits');
+        }
+    }
+    
+    // Helper function to add mapping to saved mappings
+    addToSavedMappings(fieldName, reservoirName) {
+        const savedMappings = JSON.parse(localStorage.getItem('savedMappings') || '[]');
+        
+        // Check if mapping already exists
+        const existingMapping = savedMappings.find(mapping => 
+            mapping.fieldName.toLowerCase() === fieldName.toLowerCase()
+        );
+        
+        if (!existingMapping) {
+            savedMappings.push({
+                fieldName: fieldName,
+                reservoirName: reservoirName,
+                savedAt: new Date().toISOString(),
+                source: 'correction' // Mark as coming from correction system
+            });
+            
+            localStorage.setItem('savedMappings', JSON.stringify(savedMappings));
+        }
+    }
+    
+    async getReservoirSuggestion(wrongReservoirName, permits) {
         try {
+            // Use the first permit for the suggestion request
+            const firstPermit = permits[0];
+            const permitId = firstPermit.id || this.getPermitIdByStatusNo(firstPermit.status_no);
+            
+            if (!permitId) {
+                alert('Unable to find permit ID for suggestion');
+                return;
+            }
+            
             // Show loading message
             const loadingMsg = document.createElement('div');
             loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
             loadingMsg.textContent = '🤖 Getting AI suggestion...';
             document.body.appendChild(loadingMsg);
             
-            const response = await fetch(`/api/v1/field-corrections/suggest/${permit.id}`);
+            const response = await fetch(`/api/v1/field-corrections/suggest/${permitId}`);
             
-            // Remove loading message
             document.body.removeChild(loadingMsg);
             
             if (response.ok) {
                 const result = await response.json();
                 
                 if (result.has_suggestion) {
-                    const usesSuggestion = confirm(
-                        `🤖 AI SUGGESTION\n\n` +
-                        `Permit: ${permit.status_no}\n` +
-                        `Current: "${result.current_field}"\n` +
-                        `Suggested: "${result.suggested_field}"\n\n` +
-                        `Use this suggestion?`
+                    const useIt = confirm(
+                        `🤖 AI RESERVOIR SUGGESTION\n\n` +
+                        `Current Reservoir: "${wrongReservoirName}"\n` +
+                        `AI Suggests: "${result.suggested_field}"\n` +
+                        `Affects ${permits.length} permit${permits.length !== 1 ? 's' : ''}\n\n` +
+                        `Apply this suggestion to all permits?`
                     );
                     
-                    if (usesSuggestion) {
-                        // Show applying message
-                        const applyingMsg = document.createElement('div');
-                        applyingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
-                        applyingMsg.textContent = '🤖 Applying suggestion...';
-                        document.body.appendChild(applyingMsg);
-                        
-                        // Apply the suggestion
-                        const applyResponse = await fetch('/api/v1/field-corrections/correct', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                permit_id: permit.id,
-                                status_no: permit.status_no,
-                                wrong_field: result.current_field,
-                                correct_field: result.suggested_field,
-                                detail_url: permit.detail_url
-                            })
-                        });
-                        
-                        document.body.removeChild(applyingMsg);
-                        
-                        if (applyResponse.ok) {
-                            // Show success message
-                            const successMsg = document.createElement('div');
-                            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
-                            successMsg.textContent = `✅ Applied AI suggestion: "${result.suggested_field}"`;
-                            document.body.appendChild(successMsg);
-                            
-                            setTimeout(() => {
-                                document.body.removeChild(successMsg);
-                                window.location.reload(); // Refresh to show updated data
-                            }, 2000);
-                        } else {
-                            alert('Failed to apply suggestion');
-                        }
+                    if (useIt) {
+                        // Apply the suggestion using the existing correction function
+                        await this.applyReservoirCorrection(wrongReservoirName, permits, result.suggested_field);
                     }
                 } else {
-                    alert('🤖 No AI suggestion available for this permit');
+                    // Show info message
+                    const infoMsg = document.createElement('div');
+                    infoMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #f59e0b; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                    infoMsg.textContent = 'ℹ️ No AI suggestion available for this reservoir yet';
+                    document.body.appendChild(infoMsg);
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(infoMsg);
+                    }, 3000);
                 }
                 
             } else {
-                alert('Failed to get AI suggestion');
+                // Show error message
+                const errorMsg = document.createElement('div');
+                errorMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #ef4444; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                errorMsg.textContent = '❌ Failed to get AI suggestion';
+                document.body.appendChild(errorMsg);
+                
+                setTimeout(() => {
+                    document.body.removeChild(errorMsg);
+                }, 3000);
             }
             
         } catch (error) {
-            console.error('Suggestion error:', error);
-            alert(`Error getting suggestion: ${error.message}`);
+            console.error('AI suggestion error:', error);
+            // Show error message
+            const errorMsg = document.createElement('div');
+            errorMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #ef4444; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            errorMsg.textContent = `❌ Error getting suggestion: ${error.message}`;
+            document.body.appendChild(errorMsg);
+            
+            setTimeout(() => {
+                document.body.removeChild(errorMsg);
+            }, 3000);
         }
     }
     
@@ -1001,9 +1038,13 @@ class PermitDashboard {
                                     style="flex: 1; padding: 0.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
                                 📋 Review Now
                             </button>
-                            <button onclick="window.dashboard.flagForReenrich('${item.fieldName.replace(/'/g, "\\'")}')" 
-                                    style="padding: 0.5rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap; margin: 0 2px;">
-                                🔄 Re-enrich
+                            <button onclick="window.dashboard.correctReservoirName('${item.fieldName.replace(/'/g, "\\'")}', ${JSON.stringify(item.permits).replace(/"/g, '&quot;')})" 
+                                    style="padding: 0.5rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                                🎯 Correct Reservoir
+                            </button>
+                            <button onclick="window.dashboard.getReservoirSuggestion('${item.fieldName.replace(/'/g, "\\'")}', ${JSON.stringify(item.permits).replace(/"/g, '&quot;')})" 
+                                    style="padding: 0.5rem; background: #8b5cf6; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                                🤖 AI Suggest
                             </button>
                             <button onclick="window.dashboard.removeFromReviewQueue('${item.fieldName.replace(/'/g, "\\'")}')" 
                                     style="padding: 0.5rem; background: var(--error-color); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
@@ -2686,3 +2727,4 @@ document.addEventListener('visibilitychange', () => {
         }
     }
 });
+
