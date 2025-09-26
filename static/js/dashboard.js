@@ -3308,6 +3308,17 @@ class EnhancedDashboard extends PermitDashboard {
         }
     }
 
+    // Add missing queue status class function
+    getQueueStatusClass(queueStatus) {
+        if (!queueStatus) return '';
+        const q = queueStatus.toLowerCase();
+        if (q.includes('mapping')) return 'status-mapping';
+        if (q.includes('review')) return 'status-review';
+        if (q.includes('queued')) return 'status-queued';
+        if (q.includes('processing')) return 'status-processing';
+        return '';
+    }
+
     // Mobile-specific functions
     showTopReservoirs() {
         // Create and show top reservoirs modal
