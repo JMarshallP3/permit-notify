@@ -34,7 +34,7 @@ def _is_valid_field_name(text: str) -> bool:
         # Timestamps and dates
         r'\d{2}/\d{2}/\d{4}',  # MM/DD/YYYY
         r'\d{1,2}:\d{2}:\d{2}',  # HH:MM:SS
-        r'(am|pm)',  # AM/PM
+        r'\b(am|pm)\b',  # AM/PM (word boundaries to avoid matching "camp", "phantom", etc.)
         
         # Status messages
         r'please pay',
@@ -57,6 +57,23 @@ def _is_valid_field_name(text: str) -> bool:
         r'permit.*added',
         r'review now',
         r'dismiss',
+        
+        # Generic page headers and navigation text
+        r'general.*location.*information',
+        r'location.*information',
+        r'general.*information',
+        r'page.*header',
+        r'navigation',
+        r'menu',
+        r'header',
+        r'footer',
+        r'exactly.*as.*shown.*in.*rrc.*records',
+        
+        # Distance and measurement descriptions (not field names)
+        r'nearest.*distance.*from.*the.*first.*last.*take.*point',
+        r'distance.*from.*nearest',
+        r'perpendicular.*distance',
+        r'basic.*information',
         
         # Common non-field patterns
         r'^\d+\s*(of|wells?|allocation)',
@@ -83,7 +100,11 @@ def _is_valid_field_name(text: str) -> bool:
         'granite wash', 'atoka', 'canyon', 'strawn', 'bend',
         'phantom', 'sugarkane', 'hawkville', 'emma', 'green bullet',
         'silvertip', 'skaggs', 'ratliff', 'johnson', 'bivins', 'bush',
-        'courson', 'herndon', 'moy', 'reynolds', 'dorcus', 'cindy'
+        'courson', 'herndon', 'moy', 'reynolds', 'dorcus', 'cindy',
+        # Additional common Texas formations
+        'wolfcamp', 'phantom', 'bone spring', 'delaware basin',
+        'peart', 'barnett', 'frio', 'jackson', 'yegua', 'wilcox',
+        'cotton valley', 'travis peak', 'hosston', 'sligo', 'james lime'
     ]
     
     # Check for geological terms
@@ -92,12 +113,15 @@ def _is_valid_field_name(text: str) -> bool:
     # Check for parentheses pattern (common in field names)
     has_formation_pattern = '(' in text and ')' in text and len(text.split('(')[0].strip()) > 2
     
-    # Check if it looks like a proper field name (mostly uppercase, reasonable length)
+    # Check if it looks like a proper field name (geological formation pattern)
     looks_like_field_name = (
         text.isupper() and 
         5 <= len(text) <= 50 and
         not text.isdigit() and
-        ' ' in text  # Multi-word
+        ' ' in text and  # Multi-word
+        # Must contain at least one geological indicator
+        (any(geo_word in text_lower for geo_word in ['field', 'formation', 'shale', 'sand', 'lime', 'chalk']) or
+         '(' in text and ')' in text)  # Formation names often have parentheses
     )
     
     return has_geo_term or has_formation_pattern or looks_like_field_name
@@ -287,19 +311,48 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
             if horizontal_wellbore:
                 break
     
-    # Look for "Field Name" and get the next value - ROBUST PARSING
+    # Look for field name in the Fields table section - TARGETED PARSING
+    # First, try to find the Fields table specifically
+    fields_table_found = False
+    fields_table_start = None
+    
+    # Look for Fields table by finding "District" and "Field Name" headers nearby
     for i, text in enumerate(cell_texts):
-        if "field" in text.lower() and "name" in text.lower():
-            # Look for field names that typically contain parentheses (formation names)
-            for j in range(i+1, min(i+20, len(cell_texts))):
-                next_text = cell_texts[j]
-                if next_text and _is_valid_field_name(next_text):
-                    field_name = _clean_field_name(next_text)
+        if text.lower().strip() == "district":
+            # Look for "Field Name" in the next few cells
+            for j in range(i+1, min(i+10, len(cell_texts))):
+                if cell_texts[j].lower().strip() == "field name":
+                    fields_table_found = True
+                    fields_table_start = i
                     break
-            if field_name:
+            if fields_table_found:
                 break
     
-    # Fallback: Look for common field name patterns anywhere in the table
+    # If we found the Fields table, look for field names in the data rows
+    if fields_table_found and fields_table_start is not None:
+        # Look for field names in the next several cells after the header
+        for j in range(fields_table_start + 10, min(fields_table_start + 50, len(cell_texts))):
+            next_text = cell_texts[j]
+            if next_text and _is_valid_field_name(next_text):
+                cleaned = _clean_field_name(next_text)
+                if cleaned:
+                    field_name = cleaned
+                    break
+    
+    # Fallback 1: Look for "Field Name" header and get the next value
+    if not field_name:
+        for i, text in enumerate(cell_texts):
+            if "field" in text.lower() and "name" in text.lower() and len(text) < 20:
+                # Look for field names that typically contain parentheses (formation names)
+                for j in range(i+1, min(i+20, len(cell_texts))):
+                    next_text = cell_texts[j]
+                    if next_text and _is_valid_field_name(next_text):
+                        field_name = _clean_field_name(next_text)
+                        break
+                if field_name:
+                    break
+    
+    # Fallback 2: Look for common field name patterns anywhere in the table
     if not field_name:
         for text in cell_texts:
             if text and _is_valid_field_name(text):
@@ -308,11 +361,13 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
                     field_name = cleaned
                     break
     
-    # Look for "Acres" and get the next value - IMPROVED GENERIC PARSING
+    # Look for "Acres" in the Fields table - TARGETED PARSING
+    # First, try to find acres in the Fields table context
     for i, text in enumerate(cell_texts):
+        # Look for "Acres" column header in Fields table
         if text.lower() == "acres" and len(text) < 10:
             # Look for the very next non-empty cell that's a decimal number
-            for j in range(i+1, min(i+5, len(cell_texts))):  # Look at next few cells only
+            for j in range(i+1, min(i+10, len(cell_texts))):  # Look at next few cells
                 next_text = cell_texts[j]
                 if (next_text and next_text.strip() and len(next_text) < 20):
                     # Try to parse as decimal - more flexible approach
@@ -327,6 +382,20 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
                         continue
             if acres:
                 break
+    
+    # Fallback: Look for decimal numbers that could be acres in Fields table context
+    if not acres and fields_table_found:
+        for text in cell_texts:
+            if text and text.strip() and len(text) < 20:
+                cleaned_text = text.replace(",", "").strip()
+                try:
+                    acres_val = Decimal(cleaned_text)
+                    # More specific range for acres in Fields table (typically 1-10000)
+                    if 1.0 <= acres_val <= 10000 and '.' in text:  # Must have decimal point
+                        acres = acres_val
+                        break
+                except Exception:
+                    continue
     
     # FLEXIBLE: Look for section/block/survey/abstract data with multiple patterns
     pattern_found = False

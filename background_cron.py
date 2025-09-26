@@ -36,7 +36,7 @@ class BackgroundCron:
         return True
     
     def scrape_permits(self):
-        """Scrape and enrich today's permits."""
+        """Scrape and enrich today's permits using the combined endpoint."""
         try:
             if not self.is_business_hours():
                 logger.info("⏰ Outside business hours, skipping scrape")
@@ -44,42 +44,86 @@ class BackgroundCron:
             
             # Get today's date
             today = datetime.now().strftime("%m/%d/%Y")
-            logger.info(f"🔍 Background scrape starting for {today}")
+            logger.info(f"🔍 Background scrape-and-enrich starting for {today}")
             
-            # Step 1: Scrape permits
-            api_url = "http://localhost:8000/w1/search"
-            params = {
+            # Step 1: Scrape today's permits
+            scrape_url = "http://localhost:8000/w1/search"
+            scrape_params = {
                 'begin': today,
                 'end': today,
-                'pages': 10
+                'pages': 5
             }
             
-            response = requests.get(api_url, params=params, timeout=300)
+            permits_found = 0
+            try:
+                scrape_response = requests.get(scrape_url, params=scrape_params, timeout=300)
+                if scrape_response.status_code == 200:
+                    scrape_data = scrape_response.json()
+                    permits_found = len(scrape_data.get('items', []))
+                    db_info = scrape_data.get('database', {})
+                    permits_inserted = db_info.get('inserted', 0)
+                    permits_updated = db_info.get('updated', 0)
+                    
+                    logger.info(f"✅ Background scrape completed:")
+                    logger.info(f"   📊 Permits found: {permits_found}")
+                    logger.info(f"   ➕ New permits: {permits_inserted}")
+                    logger.info(f"   🔄 Updated permits: {permits_updated}")
+                else:
+                    logger.warning(f"⚠️ Background scrape failed: {scrape_response.status_code}")
+            except Exception as scrape_error:
+                logger.error(f"❌ Background scrape error: {scrape_error}")
             
-            if response.status_code == 200:
-                data = response.json()
-                permit_count = len(data.get('items', []))
-                logger.info(f"✅ Background scrape completed: {permit_count} permits found")
+            # Step 2: Enrich permits (using available endpoint)
+            if permits_found > 0 or True:  # Always try enrichment
+                enrich_url = "http://localhost:8000/enrich/run"
+                enrich_params = {'n': min(20, max(5, permits_found))}  # Enrich 5-20 permits
                 
-                # Step 2: Trigger enrichment for today's permits
-                if permit_count > 0:
-                    logger.info(f"🔄 Starting enrichment for {permit_count} permits")
-                    enrich_url = "http://localhost:8000/enrich/today"
-                    
-                    enrich_response = requests.post(enrich_url, timeout=600)  # 10 minute timeout
-                    
-                    if enrich_response.status_code == 200:
-                        enrich_data = enrich_response.json()
-                        enriched_count = enrich_data.get('enriched_count', 0)
-                        logger.info(f"✅ Background enrichment completed: {enriched_count} permits enriched")
-                    else:
-                        logger.warning(f"⚠️ Background enrichment failed: {enrich_response.status_code}")
+                # Retry with backoff for server restarts
+                max_retries = 3
+                retry_delay = 5  # seconds
+                
+                for attempt in range(max_retries):
+                    try:
+                        enrich_response = requests.post(enrich_url, params=enrich_params, timeout=600)
                         
-            else:
-                logger.warning(f"⚠️ Background scrape failed: {response.status_code}")
+                        if enrich_response.status_code == 200:
+                            enrich_data = enrich_response.json()
+                            processed = enrich_data.get('processed', 0)
+                            successful = enrich_data.get('ok', 0)
+                            errors = enrich_data.get('errors', 0)
+                            
+                            logger.info(f"✅ Background enrichment completed:")
+                            logger.info(f"   🔍 Processed: {processed}")
+                            logger.info(f"   ✅ Successful: {successful}")
+                            logger.info(f"   ❌ Errors: {errors}")
+                            break  # Success, exit retry loop
+                            
+                        elif enrich_response.status_code == 404:
+                            if attempt < max_retries - 1:
+                                logger.info(f"🔄 Server restarting (404), retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                                time.sleep(retry_delay)
+                                continue
+                            else:
+                                logger.warning(f"⚠️ Background enrichment failed after {max_retries} attempts: 404")
+                        else:
+                            logger.warning(f"⚠️ Background enrichment failed: {enrich_response.status_code}")
+                            if enrich_response.text:
+                                logger.warning(f"   Response: {enrich_response.text[:200]}")
+                            break
+                            
+                    except requests.exceptions.ConnectionError as e:
+                        if attempt < max_retries - 1:
+                            logger.info(f"🔄 Connection failed, server may be restarting. Retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            logger.warning(f"⚠️ Background enrichment connection failed after {max_retries} attempts: {e}")
+                    except Exception as e:
+                        logger.error(f"❌ Background enrichment error: {e}")
+                        break
                 
         except Exception as e:
-            logger.error(f"❌ Background scrape/enrichment error: {e}")
+            logger.error(f"❌ Background scrape-and-enrich error: {e}")
     
     def run_scheduler(self):
         """Run the scheduler in a background thread."""

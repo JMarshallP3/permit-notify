@@ -63,7 +63,7 @@ async def startup_event():
         sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from background_cron import background_cron
         background_cron.start()
-        logger.info("🚀 Background permit scraper started")
+        logger.info("🚀 Background permit scraper started (every 10 minutes)")
     except Exception as e:
         logger.error(f"❌ Failed to start background cron: {e}")
     
