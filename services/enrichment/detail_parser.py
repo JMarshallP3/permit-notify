@@ -36,7 +36,7 @@ def _is_valid_field_name(text: str) -> bool:
         r'\d{1,2}:\d{2}:\d{2}',  # HH:MM:SS
         r'\b(am|pm)\b',  # AM/PM (word boundaries to avoid matching "camp", "phantom", etc.)
         
-        # Status messages
+        # Status messages and well operations
         r'please pay',
         r'exception fee',
         r'additional problems',
@@ -51,6 +51,11 @@ def _is_valid_field_name(text: str) -> bool:
         r'expresses no opinion',
         r'staff expresses',
         r'no opinion',
+        r'recompletion.*of.*well',
+        r'completion.*of.*well',
+        r'into.*shallower',
+        r'into.*deeper',
+        r'interval',
         
         # Administrative text
         r'suggested:',
@@ -74,6 +79,18 @@ def _is_valid_field_name(text: str) -> bool:
         r'distance.*from.*nearest',
         r'perpendicular.*distance',
         r'basic.*information',
+        
+        # Company/operator patterns (not field names)
+        r'.*\s+co\s*[/,]',  # "CO/" or "CO,"
+        r'.*\s+llc\s*$',    # ends with "LLC"
+        r'.*\s+inc\s*$',    # ends with "INC"
+        r'.*\s+corp\s*$',   # ends with "CORP"
+        r'h&tc\s+rr\s+co',  # H&TC RR CO
+        r'railroad\s+co',   # Railroad Company
+        
+        # Field name patterns that are too generic
+        r'^fields?\s+\d+$',  # "FIELD 21", "FIELDS 21"
+        r'^field\s+\w+$',    # "FIELD ABC"
         
         # Common non-field patterns
         r'^\d+\s*(of|wells?|allocation)',
@@ -114,17 +131,29 @@ def _is_valid_field_name(text: str) -> bool:
     has_formation_pattern = '(' in text and ')' in text and len(text.split('(')[0].strip()) > 2
     
     # Check if it looks like a proper field name (geological formation pattern)
-    looks_like_field_name = (
-        text.isupper() and 
-        5 <= len(text) <= 50 and
-        not text.isdigit() and
-        ' ' in text and  # Multi-word
-        # Must contain at least one geological indicator
-        (any(geo_word in text_lower for geo_word in ['field', 'formation', 'shale', 'sand', 'lime', 'chalk']) or
-         '(' in text and ')' in text)  # Formation names often have parentheses
+    # Be much more strict - require either:
+    # 1. Parentheses with formation name, OR
+    # 2. Specific geological terms, OR
+    # 3. Known field naming patterns
+    
+    # Require parentheses pattern for most field names
+    has_proper_formation_pattern = (
+        '(' in text and ')' in text and 
+        len(text.split('(')[0].strip()) > 2 and  # Something before parentheses
+        len(text.split('(')[1].split(')')[0].strip()) > 2  # Something inside parentheses
     )
     
-    return has_geo_term or has_formation_pattern or looks_like_field_name
+    # Allow specific geological formations without parentheses
+    standalone_formations = [
+        'spraberry', 'wolfcamp', 'eagle ford', 'austin chalk', 'barnett',
+        'bone spring', 'delaware', 'permian', 'woodford', 'haynesville',
+        'marcellus', 'utica', 'bakken', 'niobrara'
+    ]
+    
+    is_standalone_formation = any(formation in text_lower for formation in standalone_formations)
+    
+    # Only accept if it has proper formation pattern OR is a known standalone formation
+    return has_proper_formation_pattern or is_standalone_formation
 
 def _clean_field_name(text: str) -> str:
     """
