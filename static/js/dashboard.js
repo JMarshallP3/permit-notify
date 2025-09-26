@@ -563,6 +563,219 @@ class PermitDashboard {
         }
     }
     
+    // Accept a reservoir name as correct and move to saved mappings
+    async acceptCorrectReservoir(currentFieldName, suggestedReservoir, statusNo) {
+        try {
+            // Add to saved mappings
+            this.addToSavedMappings(currentFieldName, suggestedReservoir);
+            
+            // Remove this specific permit from review queue
+            this.removeSinglePermitFromReview(currentFieldName, statusNo);
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            successMsg.textContent = `✅ Accepted "${suggestedReservoir}" as correct for permit ${statusNo}`;
+            document.body.appendChild(successMsg);
+            
+            // Refresh tabs
+            setTimeout(() => {
+                document.body.removeChild(successMsg);
+                this.updateReviewQueueDisplay();
+                this.updateSavedMappingsDisplay();
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Accept reservoir error:', error);
+            alert(`Error accepting reservoir: ${error.message}`);
+        }
+    }
+    
+    // Correct a single permit's reservoir
+    async correctSinglePermit(permit) {
+        try {
+            const correctReservoir = prompt(
+                `🎯 CORRECT RESERVOIR\n\n` +
+                `Permit: ${permit.status_no}\n` +
+                `Lease: ${permit.lease_name || 'Unknown'}\n` +
+                `Current Field: "${permit.currentFieldName}"\n\n` +
+                `Enter the CORRECT geological reservoir name:`
+            );
+            
+            if (!correctReservoir || correctReservoir.trim() === '') {
+                return;
+            }
+            
+            if (correctReservoir.trim() === permit.currentFieldName) {
+                alert('Reservoir name is already correct');
+                return;
+            }
+            
+            // Apply correction to this permit
+            await this.applySinglePermitCorrection(permit, correctReservoir.trim());
+            
+        } catch (error) {
+            console.error('Single permit correction error:', error);
+            alert(`Error correcting permit: ${error.message}`);
+        }
+    }
+    
+    // Apply correction to a single permit
+    async applySinglePermitCorrection(permit, correctReservoir) {
+        // Show loading message
+        const loadingMsg = document.createElement('div');
+        loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+        loadingMsg.textContent = `🤖 Correcting permit ${permit.status_no}...`;
+        document.body.appendChild(loadingMsg);
+        
+        try {
+            const response = await fetch('/api/v1/field-corrections/correct', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    permit_id: permit.id || this.getPermitIdByStatusNo(permit.status_no),
+                    status_no: permit.status_no,
+                    wrong_field: permit.currentFieldName,
+                    correct_field: correctReservoir,
+                    detail_url: permit.detail_url
+                })
+            });
+            
+            document.body.removeChild(loadingMsg);
+            
+            if (response.ok) {
+                // Show success message
+                const successMsg = document.createElement('div');
+                successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                successMsg.textContent = `✅ Corrected permit ${permit.status_no}: "${permit.currentFieldName}" → "${correctReservoir}"`;
+                document.body.appendChild(successMsg);
+                
+                // Add to saved mappings and remove from review
+                this.addToSavedMappings(permit.currentFieldName, correctReservoir);
+                this.removeSinglePermitFromReview(permit.currentFieldName, permit.status_no);
+                
+                // Refresh tabs and permit data
+                setTimeout(() => {
+                    document.body.removeChild(successMsg);
+                    this.loadPermitData();
+                    this.updateReviewQueueDisplay();
+                    this.updateSavedMappingsDisplay();
+                }, 2000);
+                
+            } else {
+                alert('Failed to correct permit');
+            }
+            
+        } catch (error) {
+            document.body.removeChild(loadingMsg);
+            throw error;
+        }
+    }
+    
+    // Get AI suggestion for a single permit
+    async getSinglePermitSuggestion(permit) {
+        try {
+            const permitId = permit.id || this.getPermitIdByStatusNo(permit.status_no);
+            
+            if (!permitId) {
+                alert('Unable to find permit ID for suggestion');
+                return;
+            }
+            
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            loadingMsg.textContent = '🤖 Getting AI suggestion...';
+            document.body.appendChild(loadingMsg);
+            
+            const response = await fetch(`/api/v1/field-corrections/suggest/${permitId}`);
+            
+            document.body.removeChild(loadingMsg);
+            
+            if (response.ok) {
+                const result = await response.json();
+                
+                if (result.has_suggestion) {
+                    const useIt = confirm(
+                        `🤖 AI RESERVOIR SUGGESTION\n\n` +
+                        `Permit: ${permit.status_no}\n` +
+                        `Lease: ${permit.lease_name || 'Unknown'}\n` +
+                        `Current: "${permit.currentFieldName}"\n` +
+                        `AI Suggests: "${result.suggested_field}"\n\n` +
+                        `Apply this suggestion?`
+                    );
+                    
+                    if (useIt) {
+                        await this.applySinglePermitCorrection(permit, result.suggested_field);
+                    }
+                } else {
+                    // Show info message
+                    const infoMsg = document.createElement('div');
+                    infoMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #f59e0b; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                    infoMsg.textContent = 'ℹ️ No AI suggestion available for this permit yet';
+                    document.body.appendChild(infoMsg);
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(infoMsg);
+                    }, 3000);
+                }
+                
+            } else {
+                // Show error message
+                const errorMsg = document.createElement('div');
+                errorMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #ef4444; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                errorMsg.textContent = '❌ Failed to get AI suggestion';
+                document.body.appendChild(errorMsg);
+                
+                setTimeout(() => {
+                    document.body.removeChild(errorMsg);
+                }, 3000);
+            }
+            
+        } catch (error) {
+            console.error('AI suggestion error:', error);
+            // Show error message
+            const errorMsg = document.createElement('div');
+            errorMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #ef4444; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            errorMsg.textContent = `❌ Error getting suggestion: ${error.message}`;
+            document.body.appendChild(errorMsg);
+            
+            setTimeout(() => {
+                document.body.removeChild(errorMsg);
+            }, 3000);
+        }
+    }
+    
+    // Remove a single permit from review queue
+    removeSinglePermitFromReview(fieldName, statusNo) {
+        this.reviewQueue = this.reviewQueue.map(item => {
+            if (item.fieldName === fieldName) {
+                // Remove the specific permit from this item
+                const updatedPermits = item.permits.filter(permit => permit.status_no !== statusNo);
+                
+                if (updatedPermits.length === 0) {
+                    // If no permits left, mark for removal
+                    return null;
+                } else {
+                    // Return item with updated permits list
+                    return {
+                        ...item,
+                        permits: updatedPermits
+                    };
+                }
+            }
+            return item;
+        }).filter(item => item !== null); // Remove null items
+        
+        // Save updated review queue
+        localStorage.setItem('reviewQueue', JSON.stringify(this.reviewQueue));
+        
+        // Update display
+        this.updateReviewQueueDisplay();
+    }
+    
     async getReservoirSuggestion(wrongReservoirName, permits) {
         try {
             // Use the first permit for the suggestion request
@@ -1016,72 +1229,65 @@ class PermitDashboard {
             return;
         }
         
+        // Flatten permits from review queue for individual display
+        const individualPermits = [];
+        this.reviewQueue.forEach(item => {
+            item.permits.forEach(permit => {
+                individualPermits.push({
+                    ...permit,
+                    currentFieldName: item.fieldName,
+                    suggestedReservoir: item.suggestedReservoir,
+                    addedAt: item.addedAt
+                });
+            });
+        });
+
         contentDiv.innerHTML = `
             <div style="display: grid; gap: 1rem;">
-                ${this.reviewQueue.map(item => `
+                ${individualPermits.map(permit => `
                     <div style="padding: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--background-color);">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
                             <div style="flex: 1; min-width: 0;">
-                                <div style="font-weight: 600; font-size: 0.875rem; color: var(--primary-color); margin-bottom: 0.25rem;">
-                                    ${item.fieldName}
+                                <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
+                                    ${permit.lease_name || 'Unknown Lease'}
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">
+                                    Status: ${permit.status_no} • ${permit.status_date ? new Date(permit.status_date).toLocaleDateString() : 'No date'}
                                 </div>
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                                    Suggested: ${item.suggestedReservoir}
+                                    Current Field: <span style="color: var(--primary-color); font-weight: 500;">${permit.currentFieldName}</span>
                                 </div>
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                                    ${item.permits.length} permit${item.permits.length !== 1 ? 's' : ''} • Added ${new Date(item.addedAt).toLocaleDateString()}
+                                    Suggested: <span style="color: #10b981; font-weight: 500;">${permit.suggestedReservoir}</span>
                                 </div>
                                 
-                                <!-- Permit Details -->
-                                <div style="background: #f8fafc; border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 0.75rem;">
-                                    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">
-                                        📋 Permits:
-                                    </div>
-                                    ${item.permits.slice(0, 3).map(permit => `
-                                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.375rem 0; border-bottom: 1px solid #e2e8f0;">
-                                            <div style="flex: 1;">
-                                                <div style="font-size: 0.75rem; font-weight: 500; color: var(--text-primary);">
-                                                    ${permit.lease_name || 'Unknown Lease'}
-                                                </div>
-                                                <div style="font-size: 0.625rem; color: var(--text-secondary);">
-                                                    Status: ${permit.status_no} • ${permit.status_date ? new Date(permit.status_date).toLocaleDateString() : 'No date'}
-                                                </div>
-                                            </div>
-                                            ${permit.detail_url ? `
-                                                <a href="${permit.detail_url}" target="_blank" 
-                                                   style="padding: 0.25rem 0.5rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.25rem; font-size: 0.625rem; margin-left: 0.5rem; white-space: nowrap;">
-                                                    📄 View Permit
-                                                </a>
-                                            ` : `
-                                                <span style="padding: 0.25rem 0.5rem; background: #9ca3af; color: white; border-radius: 0.25rem; font-size: 0.625rem; margin-left: 0.5rem;">
-                                                    No URL
-                                                </span>
-                                            `}
-                                        </div>
-                                    `).join('')}
-                                    ${item.permits.length > 3 ? `
-                                        <div style="font-size: 0.625rem; color: var(--text-secondary); text-align: center; padding: 0.25rem 0; font-style: italic;">
-                                            ... and ${item.permits.length - 3} more permit${item.permits.length - 3 !== 1 ? 's' : ''}
-                                        </div>
-                                    ` : ''}
-                                </div>
+                                ${permit.detail_url ? `
+                                    <a href="${permit.detail_url}" target="_blank" 
+                                       style="display: inline-block; padding: 0.375rem 0.75rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
+                                        📄 View Permit
+                                    </a>
+                                ` : `
+                                    <span style="display: inline-block; padding: 0.375rem 0.75rem; background: #9ca3af; color: white; border-radius: 0.375rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
+                                        📄 No URL Available
+                                    </span>
+                                `}
                             </div>
                         </div>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button onclick="window.dashboard.reviewReservoirMapping('${item.fieldName.replace(/'/g, "\\'")}', '${item.suggestedReservoir.replace(/'/g, "\\'")}')" 
-                                    style="flex: 1; padding: 0.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
-                                📋 Review Now
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button onclick="window.dashboard.acceptCorrectReservoir('${permit.currentFieldName.replace(/'/g, "\\'")}', '${permit.suggestedReservoir.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                                    style="padding: 0.5rem 0.75rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                                ✅ Accept as Correct
                             </button>
-                            <button onclick="window.dashboard.correctReservoirName('${item.fieldName.replace(/'/g, "\\'")}', ${JSON.stringify(item.permits).replace(/"/g, '&quot;')})" 
-                                    style="padding: 0.5rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                            <button onclick="window.dashboard.correctSinglePermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                                    style="padding: 0.5rem 0.75rem; background: #f59e0b; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
                                 🎯 Correct Reservoir
                             </button>
-                            <button onclick="window.dashboard.getReservoirSuggestion('${item.fieldName.replace(/'/g, "\\'")}', ${JSON.stringify(item.permits).replace(/"/g, '&quot;')})" 
-                                    style="padding: 0.5rem; background: #8b5cf6; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                            <button onclick="window.dashboard.getSinglePermitSuggestion(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                                    style="padding: 0.5rem 0.75rem; background: #8b5cf6; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
                                 🤖 AI Suggest
                             </button>
-                            <button onclick="window.dashboard.removeFromReviewQueue('${item.fieldName.replace(/'/g, "\\'")}')" 
-                                    style="padding: 0.5rem; background: var(--error-color); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
+                            <button onclick="window.dashboard.removeSinglePermitFromReview('${permit.currentFieldName.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                                    style="padding: 0.5rem 0.75rem; background: var(--error-color); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
                                 ✕ Remove
                             </button>
                         </div>
