@@ -1028,8 +1028,42 @@ class PermitDashboard {
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
                                     Suggested: ${item.suggestedReservoir}
                                 </div>
-                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
                                     ${item.permits.length} permit${item.permits.length !== 1 ? 's' : ''} • Added ${new Date(item.addedAt).toLocaleDateString()}
+                                </div>
+                                
+                                <!-- Permit Details -->
+                                <div style="background: #f8fafc; border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 0.75rem;">
+                                    <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">
+                                        📋 Permits:
+                                    </div>
+                                    ${item.permits.slice(0, 3).map(permit => `
+                                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.375rem 0; border-bottom: 1px solid #e2e8f0;">
+                                            <div style="flex: 1;">
+                                                <div style="font-size: 0.75rem; font-weight: 500; color: var(--text-primary);">
+                                                    ${permit.lease_name || 'Unknown Lease'}
+                                                </div>
+                                                <div style="font-size: 0.625rem; color: var(--text-secondary);">
+                                                    Status: ${permit.status_no} • ${permit.status_date ? new Date(permit.status_date).toLocaleDateString() : 'No date'}
+                                                </div>
+                                            </div>
+                                            ${permit.detail_url ? `
+                                                <a href="${permit.detail_url}" target="_blank" 
+                                                   style="padding: 0.25rem 0.5rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.25rem; font-size: 0.625rem; margin-left: 0.5rem; white-space: nowrap;">
+                                                    📄 View Permit
+                                                </a>
+                                            ` : `
+                                                <span style="padding: 0.25rem 0.5rem; background: #9ca3af; color: white; border-radius: 0.25rem; font-size: 0.625rem; margin-left: 0.5rem;">
+                                                    No URL
+                                                </span>
+                                            `}
+                                        </div>
+                                    `).join('')}
+                                    ${item.permits.length > 3 ? `
+                                        <div style="font-size: 0.625rem; color: var(--text-secondary); text-align: center; padding: 0.25rem 0; font-style: italic;">
+                                            ... and ${item.permits.length - 3} more permit${item.permits.length - 3 !== 1 ? 's' : ''}
+                                        </div>
+                                    ` : ''}
                                 </div>
                             </div>
                         </div>
