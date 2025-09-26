@@ -470,12 +470,15 @@ class PermitDashboard {
             }
             
             if (correctField.trim() === permit.field_name) {
-                this.showInfo('Field name is already correct');
+                alert('Field name is already correct');
                 return;
             }
             
-            // Show loading
-            this.showInfo('🤖 Recording field name correction...');
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            loadingMsg.textContent = '🤖 Recording field name correction...';
+            document.body.appendChild(loadingMsg);
             
             // Record the correction
             const response = await fetch('/api/v1/field-corrections/correct', {
@@ -492,31 +495,46 @@ class PermitDashboard {
                 })
             });
             
+            document.body.removeChild(loadingMsg);
+            
             if (response.ok) {
                 const result = await response.json();
-                this.showSuccess(`✅ Field name corrected! System learned: "${permit.field_name}" → "${correctField}"`);
+                
+                // Show success message
+                const successMsg = document.createElement('div');
+                successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                successMsg.textContent = `✅ Field name corrected! System learned: "${permit.field_name}" → "${correctField}"`;
+                document.body.appendChild(successMsg);
                 
                 // Refresh permit data to show the correction
                 setTimeout(() => {
-                    this.loadPermitData();
-                }, 1500);
+                    document.body.removeChild(successMsg);
+                    window.location.reload(); // Refresh to show updated data
+                }, 2000);
                 
             } else {
                 const error = await response.json();
-                this.showError(`Failed to record correction: ${error.detail || 'Unknown error'}`);
+                alert(`Failed to record correction: ${error.detail || 'Unknown error'}`);
             }
             
         } catch (error) {
             console.error('Field correction error:', error);
-            this.showError(`Error recording correction: ${error.message}`);
+            alert(`Error recording correction: ${error.message}`);
         }
     }
     
     async getSuggestion(permit) {
         try {
-            this.showInfo('🤖 Getting AI suggestion...');
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #3b82f6; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+            loadingMsg.textContent = '🤖 Getting AI suggestion...';
+            document.body.appendChild(loadingMsg);
             
             const response = await fetch(`/api/v1/field-corrections/suggest/${permit.id}`);
+            
+            // Remove loading message
+            document.body.removeChild(loadingMsg);
             
             if (response.ok) {
                 const result = await response.json();
@@ -531,8 +549,14 @@ class PermitDashboard {
                     );
                     
                     if (usesSuggestion) {
+                        // Show applying message
+                        const applyingMsg = document.createElement('div');
+                        applyingMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                        applyingMsg.textContent = '🤖 Applying suggestion...';
+                        document.body.appendChild(applyingMsg);
+                        
                         // Apply the suggestion
-                        const response = await fetch('/api/v1/field-corrections/correct', {
+                        const applyResponse = await fetch('/api/v1/field-corrections/correct', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
@@ -546,24 +570,34 @@ class PermitDashboard {
                             })
                         });
                         
-                        if (response.ok) {
-                            this.showSuccess(`✅ Applied AI suggestion: "${result.suggested_field}"`);
-                            setTimeout(() => this.loadPermitData(), 1500);
+                        document.body.removeChild(applyingMsg);
+                        
+                        if (applyResponse.ok) {
+                            // Show success message
+                            const successMsg = document.createElement('div');
+                            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1000; font-weight: 500;';
+                            successMsg.textContent = `✅ Applied AI suggestion: "${result.suggested_field}"`;
+                            document.body.appendChild(successMsg);
+                            
+                            setTimeout(() => {
+                                document.body.removeChild(successMsg);
+                                window.location.reload(); // Refresh to show updated data
+                            }, 2000);
                         } else {
-                            this.showError('Failed to apply suggestion');
+                            alert('Failed to apply suggestion');
                         }
                     }
                 } else {
-                    this.showInfo('🤖 No AI suggestion available for this permit');
+                    alert('🤖 No AI suggestion available for this permit');
                 }
                 
             } else {
-                this.showError('Failed to get AI suggestion');
+                alert('Failed to get AI suggestion');
             }
             
         } catch (error) {
             console.error('Suggestion error:', error);
-            this.showError(`Error getting suggestion: ${error.message}`);
+            alert(`Error getting suggestion: ${error.message}`);
         }
     }
     

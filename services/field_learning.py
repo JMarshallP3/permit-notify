@@ -42,7 +42,9 @@ class FieldLearningSystem:
                 logger.info(f"Loaded {len(corrections)} field name corrections")
                 
         except Exception as e:
-            logger.error(f"Error loading learned patterns: {e}")
+            # Initialize empty patterns if database table doesn't exist yet
+            logger.warning(f"Field corrections table not available yet: {e}")
+            self.learned_patterns = {}
     
     def record_correction(self, permit_id: int, status_no: str, wrong_field: str, 
                          correct_field: str, detail_url: str = None, 
@@ -57,22 +59,28 @@ class FieldLearningSystem:
                     logger.error(f"Permit {permit_id} not found for correction")
                     return False
                 
-                # Create correction record
-                correction = FieldCorrection(
-                    permit_id=permit_id,
-                    status_no=status_no,
-                    lease_name=permit.lease_name,
-                    operator_name=permit.operator_name,
-                    wrong_field_name=wrong_field,
-                    correct_field_name=correct_field,
-                    detail_url=detail_url,
-                    html_context=html_context
-                )
+                try:
+                    # Try to create correction record (will fail if table doesn't exist)
+                    correction = FieldCorrection(
+                        permit_id=permit_id,
+                        status_no=status_no,
+                        lease_name=permit.lease_name,
+                        operator_name=permit.operator_name,
+                        wrong_field_name=wrong_field,
+                        correct_field_name=correct_field,
+                        detail_url=detail_url,
+                        html_context=html_context
+                    )
+                    
+                    session.add(correction)
+                    session.commit()
+                    logger.info(f"📝 Saved correction to database")
+                    
+                except Exception as db_error:
+                    logger.warning(f"Could not save to field_corrections table: {db_error}")
+                    # Continue anyway - we can still update the permit
                 
-                session.add(correction)
-                session.commit()
-                
-                # Update the permit with correct field name
+                # Update the permit with correct field name (this should always work)
                 permit.field_name = correct_field
                 session.commit()
                 
