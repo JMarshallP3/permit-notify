@@ -3437,52 +3437,83 @@ class EnhancedDashboard extends PermitDashboard {
         return originalCard;
     }
 
-    // Helper method to generate permit card HTML (extracted from parent class logic)
+    // Helper method to generate permit card HTML (using original structure)
     generatePermitCardHTML(permit) {
-        const statusDate = permit.status_date ? new Date(permit.status_date).toLocaleDateString() : 'No date';
-        const fieldName = permit.field_name || 'Unknown';
-        const leaseName = permit.lease_name || 'Unknown Lease';
-        const county = permit.county || 'Unknown County';
-        const operator = permit.operator_name || 'Unknown Operator';
-        const purpose = permit.purpose_code || 'Unknown Purpose';
+        const isDismissed = this.dismissedPermits.has(permit.status_no);
         
         return `
-            <div class="permit-card" data-permit-id="${permit.id}" data-status="${permit.status_no}">
+            <div class="permit-card ${isDismissed ? 'dismissed' : ''}" data-permit-id="${permit.status_no}">
                 <div class="permit-card-header">
-                    <div class="permit-card-title">${leaseName}</div>
-                    <div class="permit-card-status">${permit.status_no}</div>
+                    <div class="permit-date">${this.formatDate(permit.status_date)}</div>
                 </div>
-                <div class="permit-card-meta">
-                    <div class="permit-meta-item">
-                        <span class="permit-meta-label">Field:</span>
-                        <span class="permit-meta-value">${fieldName}</span>
+                
+                <div class="permit-card-body">
+                    <div class="permit-info-row" style="align-items: flex-start;">
+                        <span class="permit-label" style="margin-top: 0;">Operator</span>
+                        <span class="permit-value operator-name">${this.cleanOperatorName(permit.operator_name) || '-'}</span>
                     </div>
-                    <div class="permit-meta-item">
-                        <span class="permit-meta-label">County:</span>
-                        <span class="permit-meta-value">${county}</span>
+                    
+                    <div class="permit-info-row">
+                        <span class="permit-label">Lease</span>
+                        <span class="permit-value lease-name">${permit.lease_name || '-'}</span>
                     </div>
-                    <div class="permit-meta-item">
-                        <span class="permit-meta-label">Operator:</span>
-                        <span class="permit-meta-value">${operator}</span>
+                    
+                    <div class="permit-info-row">
+                        <span class="permit-label">Well #</span>
+                        <span class="permit-value">${permit.well_no || '-'}</span>
                     </div>
-                    <div class="permit-meta-item">
-                        <span class="permit-meta-label">Purpose:</span>
-                        <span class="permit-meta-value">${purpose}</span>
+                    
+                    <div class="permit-info-row">
+                        <span class="permit-label">Purpose</span>
+                        <span class="permit-value">
+                            <span class="permit-status ${this.getStatusClass(permit.filing_purpose)}">
+                                ${permit.filing_purpose || '-'}
+                            </span>
+                        </span>
                     </div>
-                    <div class="permit-meta-item">
-                        <span class="permit-meta-label">Date:</span>
-                        <span class="permit-meta-value">${statusDate}</span>
+                    
+                    <div class="permit-info-row">
+                        <span class="permit-label">Queue</span>
+                        <span class="permit-value">
+                            <span class="permit-status ${this.getQueueStatusClass(permit.queue_status)}">
+                                ${permit.queue_status || 'Not Queued'}
+                            </span>
+                        </span>
+                    </div>
+                    
+                    <div class="permit-info-row">
+                        <span class="permit-label">Drill Type</span>
+                        <span class="permit-value">${permit.drill_type || '-'}</span>
+                    </div>
+                    
+                    <div class="permit-info-row">
+                        <span class="permit-label">Reservoir</span>
+                        <span class="permit-value reservoir-name" data-field="${permit.field_name}">
+                            ${this.extractReservoir(permit)}
+                        </span>
                     </div>
                 </div>
+                
                 <div class="permit-card-actions">
                     ${permit.detail_url ? `
-                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-primary">
+                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline">
                             📄 View Details
                         </a>
                     ` : ''}
+                    
                     <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
                         🔄 Re-enrich
                     </button>
+                    
+                    ${!isDismissed ? `
+                        <button class="btn btn-sm btn-outline" onclick="window.dashboard.dismissPermit('${permit.status_no}')">
+                            ✕ Dismiss
+                        </button>
+                    ` : `
+                        <button class="btn btn-sm btn-outline" onclick="window.dashboard.undismissPermit('${permit.status_no}')">
+                            ↩ Restore
+                        </button>
+                    `}
                 </div>
             </div>
         `;
