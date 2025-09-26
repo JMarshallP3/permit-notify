@@ -19,6 +19,118 @@ def _text(el) -> str | None:
     t = el.text_content().strip()
     return WS.sub(" ", t) if t else None
 
+def _is_valid_field_name(text: str) -> bool:
+    """
+    Validate if text looks like a legitimate field name.
+    Field names should be geological formations, not status messages or timestamps.
+    """
+    if not text or len(text) > 100:  # Too long
+        return False
+    
+    text_lower = text.lower().strip()
+    
+    # Reject obvious non-field-name patterns
+    invalid_patterns = [
+        # Timestamps and dates
+        r'\d{2}/\d{2}/\d{4}',  # MM/DD/YYYY
+        r'\d{1,2}:\d{2}:\d{2}',  # HH:MM:SS
+        r'(am|pm)',  # AM/PM
+        
+        # Status messages
+        r'please pay',
+        r'exception fee',
+        r'additional problems',
+        r're-entry permit',
+        r'this well was',
+        r'never plu',
+        r'revised plat',
+        r'changed.*survey',
+        r'allocation wells',
+        r'drilled concurre',
+        
+        # Administrative text
+        r'suggested:',
+        r'permit.*added',
+        r'review now',
+        r'dismiss',
+        
+        # Common non-field patterns
+        r'^\d+\s*(of|wells?|allocation)',
+        r'primary field$',
+        r'^oil\s+(or\s+)?gas',
+        r'^gas\s+(or\s+)?oil',
+    ]
+    
+    # Check for invalid patterns
+    for pattern in invalid_patterns:
+        if re.search(pattern, text_lower):
+            return False
+    
+    # Valid field names typically have these characteristics:
+    # 1. Contain formation names in parentheses, OR
+    # 2. Are all caps geological names, OR  
+    # 3. Contain common geological terms
+    
+    geological_terms = [
+        'eagle ford', 'wolfcamp', 'spraberry', 'austin chalk', 'barnett shale',
+        'bone spring', 'delaware', 'midland', 'permian', 'woodford',
+        'haynesville', 'marcellus', 'utica', 'bakken', 'niobrara',
+        'trend area', 'formation', 'shale', 'chalk', 'sand', 'lime',
+        'granite wash', 'atoka', 'canyon', 'strawn', 'bend',
+        'phantom', 'sugarkane', 'hawkville', 'emma', 'green bullet',
+        'silvertip', 'skaggs', 'ratliff', 'johnson', 'bivins', 'bush',
+        'courson', 'herndon', 'moy', 'reynolds', 'dorcus', 'cindy'
+    ]
+    
+    # Check for geological terms
+    has_geo_term = any(term in text_lower for term in geological_terms)
+    
+    # Check for parentheses pattern (common in field names)
+    has_formation_pattern = '(' in text and ')' in text and len(text.split('(')[0].strip()) > 2
+    
+    # Check if it looks like a proper field name (mostly uppercase, reasonable length)
+    looks_like_field_name = (
+        text.isupper() and 
+        5 <= len(text) <= 50 and
+        not text.isdigit() and
+        ' ' in text  # Multi-word
+    )
+    
+    return has_geo_term or has_formation_pattern or looks_like_field_name
+
+def _clean_field_name(text: str) -> str:
+    """
+    Clean and standardize field name text.
+    """
+    if not text:
+        return None
+    
+    # Split by newlines and take the first meaningful line
+    lines = text.strip().split('\n')
+    clean_name = lines[0].strip()
+    
+    # Remove common suffixes that aren't part of the field name
+    suffixes_to_remove = [
+        r'\s+Primary Field$',
+        r'\s+Secondary Field$', 
+        r'\s+\([^)]*Field\)$',
+        r'\s+Field$',
+    ]
+    
+    for suffix in suffixes_to_remove:
+        clean_name = re.sub(suffix, '', clean_name, flags=re.IGNORECASE)
+    
+    # Clean up extra whitespace
+    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+    
+    # Ensure we still have parentheses for formation names
+    if '(' in clean_name and ')' in clean_name:
+        return clean_name
+    elif clean_name and len(clean_name) >= 5:
+        return clean_name
+    else:
+        return None
+
 def _label_value(tree, label_texts: list[str]) -> str | None:
     """
     Find a <tr> that has a cell (th/td) whose normalized text contains one of label_texts,
@@ -135,25 +247,26 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
             if horizontal_wellbore:
                 break
     
-    # Look for "Field Name" and get the next value - IMPROVED GENERIC PARSING
+    # Look for "Field Name" and get the next value - ROBUST PARSING
     for i, text in enumerate(cell_texts):
         if "field" in text.lower() and "name" in text.lower():
             # Look for field names that typically contain parentheses (formation names)
             for j in range(i+1, min(i+20, len(cell_texts))):
                 next_text = cell_texts[j]
-                if (next_text and 
-                    "(" in next_text and ")" in next_text and
-                    "oil" not in next_text.lower() and  # Skip "Oil or Gas Well" text
-                    "gas" not in next_text.lower()):
-                    # Clean the field name by extracting just the main part
-                    # e.g., "SUGARKANE (EAGLE FORD) \n\n Primary Field" -> "SUGARKANE (EAGLE FORD)"
-                    lines = next_text.strip().split('\n')
-                    clean_name = lines[0].strip()
-                    if clean_name and "(" in clean_name and ")" in clean_name:
-                        field_name = clean_name
-                        break
+                if next_text and _is_valid_field_name(next_text):
+                    field_name = _clean_field_name(next_text)
+                    break
             if field_name:
                 break
+    
+    # Fallback: Look for common field name patterns anywhere in the table
+    if not field_name:
+        for text in cell_texts:
+            if text and _is_valid_field_name(text):
+                cleaned = _clean_field_name(text)
+                if cleaned:
+                    field_name = cleaned
+                    break
     
     # Look for "Acres" and get the next value - IMPROVED GENERIC PARSING
     for i, text in enumerate(cell_texts):
