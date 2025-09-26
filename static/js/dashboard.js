@@ -3400,7 +3400,8 @@ class EnhancedDashboard extends PermitDashboard {
 
     // Enhanced permit rendering with "New Reservoir Detected" option
     renderPermitCard(permit) {
-        const originalCard = super.renderPermitCard(permit);
+        // Get the original card HTML from the parent class method
+        const originalCard = this.generatePermitCardHTML(permit);
         
         // Check if this is a new/unknown reservoir
         const isNewReservoir = permit.field_name && 
@@ -3426,29 +3427,290 @@ class EnhancedDashboard extends PermitDashboard {
                 </div>
             `;
             
-            cardElement.querySelector('.permit-card').insertBefore(banner, cardElement.querySelector('.permit-card').firstChild);
-            return cardElement.innerHTML;
+            const permitCard = cardElement.querySelector('.permit-card');
+            if (permitCard) {
+                permitCard.insertBefore(banner, permitCard.firstChild);
+                return cardElement.innerHTML;
+            }
         }
         
         return originalCard;
+    }
+
+    // Helper method to generate permit card HTML (extracted from parent class logic)
+    generatePermitCardHTML(permit) {
+        const statusDate = permit.status_date ? new Date(permit.status_date).toLocaleDateString() : 'No date';
+        const fieldName = permit.field_name || 'Unknown';
+        const leaseName = permit.lease_name || 'Unknown Lease';
+        const county = permit.county || 'Unknown County';
+        const operator = permit.operator_name || 'Unknown Operator';
+        const purpose = permit.purpose_code || 'Unknown Purpose';
+        
+        return `
+            <div class="permit-card" data-permit-id="${permit.id}" data-status="${permit.status_no}">
+                <div class="permit-card-header">
+                    <div class="permit-card-title">${leaseName}</div>
+                    <div class="permit-card-status">${permit.status_no}</div>
+                </div>
+                <div class="permit-card-meta">
+                    <div class="permit-meta-item">
+                        <span class="permit-meta-label">Field:</span>
+                        <span class="permit-meta-value">${fieldName}</span>
+                    </div>
+                    <div class="permit-meta-item">
+                        <span class="permit-meta-label">County:</span>
+                        <span class="permit-meta-value">${county}</span>
+                    </div>
+                    <div class="permit-meta-item">
+                        <span class="permit-meta-label">Operator:</span>
+                        <span class="permit-meta-value">${operator}</span>
+                    </div>
+                    <div class="permit-meta-item">
+                        <span class="permit-meta-label">Purpose:</span>
+                        <span class="permit-meta-value">${purpose}</span>
+                    </div>
+                    <div class="permit-meta-item">
+                        <span class="permit-meta-label">Date:</span>
+                        <span class="permit-meta-value">${statusDate}</span>
+                    </div>
+                </div>
+                <div class="permit-card-actions">
+                    ${permit.detail_url ? `
+                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-primary">
+                            📄 View Details
+                        </a>
+                    ` : ''}
+                    <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
+                        🔄 Re-enrich
+                    </button>
+                </div>
+            </div>
+        `;
     }
 
     // Handle new reservoir detection
     handleNewReservoir(fieldName, statusNo) {
         // Add to review queue and open reservoir management
         this.addToReviewQueue(fieldName, 'Unknown - Needs Review');
-        this.showReservoirManagement();
+        
+        // Open reservoir management modal
+        const modal = this.createModal('Reservoir Management', this.generateReservoirManagementContent());
+        document.body.appendChild(modal);
+        modal.style.display = 'flex';
         
         // Switch to Under Review tab
         setTimeout(() => {
-            const underReviewTab = document.querySelector('[onclick*="switchReservoirTab(\'review\')"]');
+            const underReviewTab = modal.querySelector('[onclick*="switchReservoirTab(\'review\')"]');
             if (underReviewTab) {
                 underReviewTab.click();
             }
         }, 500);
         
         // Show success message
-        this.showSuccess(`🆕 "${fieldName}" added to reservoir management for review`);
+        this.showMobileToast(`🆕 "${fieldName}" added for review`, 'success');
+    }
+
+    // Mobile toast message (use the one from MobileEnhancements if available)
+    showMobileToast(message, type = 'info') {
+        if (window.mobileEnhancements && window.mobileEnhancements.showMobileToast) {
+            window.mobileEnhancements.showMobileToast(message, type);
+        } else {
+            // Fallback to simple alert
+            alert(message);
+        }
+    }
+
+    // Generate reservoir management content for modal
+    generateReservoirManagementContent() {
+        return `
+            <div class="reservoir-management">
+                <div class="reservoir-tabs">
+                    <button class="reservoir-tab active" onclick="window.dashboard.switchReservoirTab('saved')">
+                        💾 Saved Mappings (${Object.keys(this.reservoirMapping).length})
+                    </button>
+                    <button class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('review')">
+                        🔍 Under Review (${this.reviewQueue.length})
+                    </button>
+                    <button class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('cancelled')">
+                        ❌ Cancelled (${this.cancelledMappings.length})
+                    </button>
+                </div>
+                <div class="reservoir-content">
+                    <div id="savedMappings" class="tab-content active">
+                        ${this.generateSavedMappingsContent()}
+                    </div>
+                    <div id="reviewQueue" class="tab-content">
+                        ${this.generateReviewQueueContent()}
+                    </div>
+                    <div id="cancelledMappings" class="tab-content">
+                        ${this.generateCancelledMappingsContent()}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    generateSavedMappingsContent() {
+        const mappings = Object.entries(this.reservoirMapping);
+        if (mappings.length === 0) {
+            return '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);">No saved mappings yet</div>';
+        }
+        
+        return `
+            <div style="display: grid; gap: 0.5rem;">
+                ${mappings.map(([field, reservoir]) => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem;">
+                        <div>
+                            <div style="font-weight: 600;">${field}</div>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary);">→ ${reservoir}</div>
+                        </div>
+                        <button onclick="window.dashboard.removeSavedMapping('${field}')" style="background: var(--error-color); color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer;">
+                            Remove
+                        </button>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    generateReviewQueueContent() {
+        if (this.reviewQueue.length === 0) {
+            return '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);">No items under review</div>';
+        }
+        
+        return `
+            <div style="display: grid; gap: 1rem;">
+                ${this.reviewQueue.map(item => `
+                    <div style="padding: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem;">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem;">${item.fieldName}</div>
+                        <div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                            Suggested: ${item.suggestedReservoir}
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="window.dashboard.acceptReservoirSuggestion('${item.fieldName}', '${item.suggestedReservoir}')" 
+                                    style="background: var(--success-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer;">
+                                Accept
+                            </button>
+                            <button onclick="window.dashboard.correctReservoirName('${item.fieldName}', ${JSON.stringify(item.permits)})" 
+                                    style="background: var(--warning-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer;">
+                                Correct
+                            </button>
+                            <button onclick="window.dashboard.removeFromReviewQueue('${item.fieldName}')" 
+                                    style="background: var(--error-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer;">
+                                Remove
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    generateCancelledMappingsContent() {
+        if (this.cancelledMappings.length === 0) {
+            return '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);">No cancelled mappings</div>';
+        }
+        
+        return `
+            <div style="display: grid; gap: 0.5rem;">
+                ${this.cancelledMappings.map(mapping => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; opacity: 0.7;">
+                        <div>
+                            <div style="font-weight: 600;">${mapping.fieldName}</div>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary);">Cancelled on ${new Date(mapping.cancelledAt).toLocaleDateString()}</div>
+                        </div>
+                        <button onclick="window.dashboard.restoreCancelledMapping('${mapping.fieldName}')" style="background: var(--primary-color); color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer;">
+                            Restore
+                        </button>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // Tab switching for reservoir management
+    switchReservoirTab(tabName) {
+        // Remove active class from all tabs and contents
+        const tabs = document.querySelectorAll('.reservoir-tab');
+        const contents = document.querySelectorAll('.tab-content');
+        
+        tabs.forEach(tab => tab.classList.remove('active'));
+        contents.forEach(content => content.classList.remove('active'));
+        
+        // Add active class to selected tab and content
+        const selectedTab = document.querySelector(`[onclick*="switchReservoirTab('${tabName}')"]`);
+        const selectedContent = document.getElementById(tabName === 'saved' ? 'savedMappings' : tabName === 'review' ? 'reviewQueue' : 'cancelledMappings');
+        
+        if (selectedTab) selectedTab.classList.add('active');
+        if (selectedContent) selectedContent.classList.add('active');
+    }
+
+    // Helper methods for reservoir management
+    acceptReservoirSuggestion(fieldName, suggestedReservoir) {
+        // Add to saved mappings
+        this.reservoirMapping[fieldName] = suggestedReservoir;
+        localStorage.setItem('reservoirMappings', JSON.stringify(this.reservoirMapping));
+        
+        // Remove from review queue
+        this.removeFromReviewQueue(fieldName);
+        
+        // Show success message
+        this.showMobileToast(`✅ Accepted: "${fieldName}" → "${suggestedReservoir}"`, 'success');
+        
+        // Refresh the modal content
+        setTimeout(() => {
+            const modal = document.querySelector('.modal');
+            if (modal) {
+                const modalBody = modal.querySelector('.modal-body');
+                if (modalBody) {
+                    modalBody.innerHTML = this.generateReservoirManagementContent();
+                }
+            }
+        }, 1000);
+    }
+
+    removeSavedMapping(fieldName) {
+        if (confirm(`Remove mapping for "${fieldName}"?`)) {
+            delete this.reservoirMapping[fieldName];
+            localStorage.setItem('reservoirMappings', JSON.stringify(this.reservoirMapping));
+            
+            // Refresh the modal content
+            const modal = document.querySelector('.modal');
+            if (modal) {
+                const modalBody = modal.querySelector('.modal-body');
+                if (modalBody) {
+                    modalBody.innerHTML = this.generateReservoirManagementContent();
+                }
+            }
+            
+            this.showMobileToast(`🗑️ Removed mapping for "${fieldName}"`, 'info');
+        }
+    }
+
+    restoreCancelledMapping(fieldName) {
+        // Find the cancelled mapping
+        const cancelledIndex = this.cancelledMappings.findIndex(m => m.fieldName === fieldName);
+        if (cancelledIndex !== -1) {
+            const cancelled = this.cancelledMappings[cancelledIndex];
+            
+            // Add back to review queue
+            this.addToReviewQueue(cancelled.fieldName, 'Restored - Needs Review');
+            
+            // Remove from cancelled
+            this.cancelledMappings.splice(cancelledIndex, 1);
+            localStorage.setItem('cancelledMappings', JSON.stringify(this.cancelledMappings));
+            
+            // Refresh the modal content
+            const modal = document.querySelector('.modal');
+            if (modal) {
+                const modalBody = modal.querySelector('.modal-body');
+                if (modalBody) {
+                    modalBody.innerHTML = this.generateReservoirManagementContent();
+                }
+            }
+            
+            this.showMobileToast(`🔄 Restored "${fieldName}" to review queue`, 'success');
+        }
     }
 }
 
