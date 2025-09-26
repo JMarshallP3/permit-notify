@@ -306,6 +306,49 @@ class EnrichmentWorker:
 
             session.commit()
     
+    async def enrich_permit(self, permit_id: int) -> bool:
+        """
+        Enrich a single permit by ID.
+        
+        Args:
+            permit_id: Database ID of the permit to enrich
+            
+        Returns:
+            True if enrichment was successful, False otherwise
+        """
+        try:
+            # Get permit from database
+            with get_session() as session:
+                permit = session.query(Permit).filter(Permit.id == permit_id).first()
+                if not permit:
+                    logger.error(f"Permit with ID {permit_id} not found")
+                    return False
+                
+                # Extract permit data to avoid session issues
+                permit_copy = Permit()
+                for attr in ['id', 'status_no', 'lease_name', 'detail_url', 'operator_name', 'county', 'status_date']:
+                    if hasattr(permit, attr):
+                        setattr(permit_copy, attr, getattr(permit, attr))
+            
+            # Enrich the permit
+            result = self._enrich_permit(permit_copy, sleep_ms=0)
+            
+            # Update database with results
+            self._update_permit_in_db(permit_copy, result)
+            
+            # Check if enrichment was successful
+            status = result.get('w1_parse_status', 'failed')
+            if status in ['ok', 'partial']:
+                logger.info(f"Successfully enriched permit {permit_copy.status_no}")
+                return True
+            else:
+                logger.warning(f"Enrichment failed for permit {permit_copy.status_no}: {status}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error enriching permit {permit_id}: {e}")
+            return False
+    
     def run(self, limit: int = 5, sleep_ms: int = 0) -> Dict[str, Any]:
         """
         Run the enrichment worker.

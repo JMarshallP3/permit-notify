@@ -581,6 +581,14 @@ class PermitDashboard {
                 localStorage.setItem('reservoirMapping', JSON.stringify(this.reservoirMapping));
                 this.removeFromReviewQueue(fieldName);
                 this.renderPermitCards(); // Re-render with new mapping
+                
+                // Refresh the current tab display to show updated content
+                const activeTab = document.querySelector('.reservoir-tab.active');
+                if (activeTab) {
+                    const tabName = activeTab.id.replace('Tab', '');
+                    this.switchReservoirTab(tabName);
+                }
+                
                 this.showSuccess(`Reservoir mapping saved: "${fieldName}" → "${reservoirName}"`);
             }
             modal.remove();
@@ -803,9 +811,9 @@ class PermitDashboard {
                                     style="flex: 1; padding: 0.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
                                 📋 Review Now
                             </button>
-                            <button onclick="window.dashboard.flagForReparse('${item.fieldName.replace(/'/g, "\\'")}')" 
-                                    style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap; margin: 0 2px;">
-                                🔄 Re-parse
+                            <button onclick="window.dashboard.flagForReenrich('${item.fieldName.replace(/'/g, "\\'")}')" 
+                                    style="padding: 0.5rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap; margin: 0 2px;">
+                                🔄 Re-enrich
                             </button>
                             <button onclick="window.dashboard.removeFromReviewQueue('${item.fieldName.replace(/'/g, "\\'")}')" 
                                     style="padding: 0.5rem; background: var(--error-color); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
@@ -1072,39 +1080,39 @@ class PermitDashboard {
         }
     }
 
-    async flagForReparse(fieldName) {
+    async flagForReenrich(fieldName) {
         try {
             // Confirm with user
             const confirmed = confirm(
-                `Flag permits with field name "${fieldName}" for re-parsing?\n\n` +
-                `This will queue all permits with this field name to be re-parsed with updated algorithms. The process may take a few minutes.`
+                `Flag permits with field name "${fieldName}" for re-enrichment?\n\n` +
+                `This will re-extract detailed information for all permits with this field name. The process may take a few minutes.`
             );
             
             if (!confirmed) return;
 
             // Show loading state
-            this.showInfo(`🔄 Flagging permits for re-parsing...`);
+            this.showInfo(`🔄 Flagging permits for re-enrichment...`);
 
             // Find all permits with this field name
-            const permitsToReparse = this.permits.filter(permit => 
+            const permitsToReenrich = this.permits.filter(permit => 
                 permit.field_name && permit.field_name.trim().toLowerCase() === fieldName.trim().toLowerCase()
             );
 
-            if (permitsToReparse.length === 0) {
+            if (permitsToReenrich.length === 0) {
                 this.showError(`No permits found with field name "${fieldName}"`);
                 return;
             }
 
-            // Get existing reparse queue
-            const reparseQueue = JSON.parse(localStorage.getItem('reparseQueue') || '[]');
+            // Get existing re-enrichment queue
+            const reenrichQueue = JSON.parse(localStorage.getItem('reenrichQueue') || '[]');
             
-            // Add permits to reparse queue
+            // Add permits to re-enrichment queue
             let addedCount = 0;
-            permitsToReparse.forEach(permit => {
+            permitsToReenrich.forEach(permit => {
                 // Check if already in queue
-                const alreadyQueued = reparseQueue.some(item => item.statusNo === permit.status_no);
+                const alreadyQueued = reenrichQueue.some(item => item.statusNo === permit.status_no);
                 if (!alreadyQueued) {
-                    reparseQueue.push({
+                    reenrichQueue.push({
                         statusNo: permit.status_no,
                         leaseName: permit.lease_name,
                         fieldName: permit.field_name,
@@ -1112,26 +1120,26 @@ class PermitDashboard {
                         operator: permit.operator_name,
                         flaggedAt: new Date().toISOString(),
                         status: 'queued',
-                        reason: 'Incorrect field name parsing'
+                        reason: 'Manual re-enrichment request'
                     });
                     addedCount++;
                 }
             });
 
             // Save to localStorage
-            localStorage.setItem('reparseQueue', JSON.stringify(reparseQueue));
+            localStorage.setItem('reenrichQueue', JSON.stringify(reenrichQueue));
 
             if (addedCount > 0) {
-                this.showSuccess(`✅ Flagged ${addedCount} permit${addedCount !== 1 ? 's' : ''} for re-parsing`);
+                this.showSuccess(`✅ Flagged ${addedCount} permit${addedCount !== 1 ? 's' : ''} for re-enrichment`);
                 
-                // Try to trigger server-side reparse if API is available
+                // Try to trigger server-side re-enrichment if API is available
                 try {
-                    const statusNumbers = reparseQueue
+                    const statusNumbers = reenrichQueue
                         .filter(item => item.status === 'queued')
                         .map(item => item.statusNo);
                     
                     if (statusNumbers.length > 0) {
-                        const response = await fetch('/api/v1/permits/reparse', {
+                        const response = await fetch('/api/v1/permits/reenrich', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
@@ -1143,25 +1151,30 @@ class PermitDashboard {
                         });
 
                         if (response.ok) {
-                            this.showSuccess(`🚀 Re-parsing started for ${Math.min(statusNumbers.length, 10)} permits`);
+                            this.showSuccess(`🚀 Re-enrichment started for ${Math.min(statusNumbers.length, 10)} permits`);
+                            
+                            // Refresh permit data after a short delay
+                            setTimeout(() => {
+                                this.loadPermitData();
+                            }, 3000);
                         } else {
-                            console.warn('Re-parse API not available, permits queued locally');
+                            console.warn('Re-enrichment API not available, permits queued locally');
                         }
                     }
                 } catch (apiError) {
-                    console.warn('Re-parse API not available:', apiError);
+                    console.warn('Re-enrichment API not available:', apiError);
                     // Continue with local queuing
                 }
                 
             } else {
-                this.showInfo(`All ${permitsToReparse.length} permit${permitsToReparse.length !== 1 ? 's' : ''} with this field name are already queued for re-parsing`);
+                this.showInfo(`All ${permitsToReenrich.length} permit${permitsToReenrich.length !== 1 ? 's' : ''} with this field name are already queued for re-enrichment`);
             }
 
             // Remove from review queue since we're handling it
             this.removeFromReviewQueue(fieldName);
             
         } catch (error) {
-            console.error('Error flagging for reparse:', error);
+            console.error('Error flagging for re-enrichment:', error);
             this.showError(`Error: ${error.message}`);
         }
     }

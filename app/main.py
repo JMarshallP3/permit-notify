@@ -594,6 +594,66 @@ async def get_reservoir_trends_api(
         logger.error(f"Reservoir trends error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch reservoir trends")
 
+@app.post("/enrich/all-missing")
+async def enrich_all_missing_permits():
+    """
+    Enrich ALL permits that are missing detailed information (regardless of date).
+    This is useful for backfilling existing permits.
+    """
+    try:
+        from datetime import datetime, timedelta
+        from db.session import get_session
+        from db.models import Permit
+        from services.enrichment.worker import EnrichmentWorker
+        
+        # Get all permits that need enrichment (missing field_name, acres, or section)
+        with get_session() as session:
+            permits = session.query(Permit).filter(
+                (Permit.field_name == None) | 
+                (Permit.field_name == '') |
+                (Permit.acres == None) |
+                (Permit.section == None)
+            ).limit(50).all()  # Limit to 50 to prevent overload
+            
+            if not permits:
+                return {
+                    "success": True,
+                    "message": "No permits need enrichment",
+                    "enriched_count": 0
+                }
+            
+            logger.info(f"🔄 Starting enrichment for {len(permits)} permits missing data")
+            
+            # Initialize enrichment worker
+            worker = EnrichmentWorker()
+            enriched_count = 0
+            
+            # Enrich each permit
+            for permit in permits:
+                try:
+                    # Enrich the permit
+                    success = await worker.enrich_permit(permit.id)
+                    if success:
+                        enriched_count += 1
+                        logger.info(f"✅ Enriched permit {permit.status_no}")
+                    else:
+                        logger.warning(f"⚠️ Failed to enrich permit {permit.status_no}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error enriching permit {permit.status_no}: {e}")
+                    continue
+            
+            return {
+                "success": True,
+                "message": f"Backfill enrichment completed",
+                "total_permits": len(permits),
+                "enriched_count": enriched_count
+            }
+            
+    except Exception as e:
+        logger.error(f"Backfill enrichment error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to enrich missing permits: {str(e)}")
+
 @app.post("/enrich/today")
 async def enrich_today_permits():
     """
@@ -660,10 +720,10 @@ async def enrich_today_permits():
         logger.error(f"Enrichment error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to enrich today's permits: {str(e)}")
 
-@app.post("/api/v1/permits/reparse")
-async def reparse_permits(request_data: dict):
+@app.post("/api/v1/permits/reenrich")
+async def reenrich_permits(request_data: dict):
     """
-    Queue permits for re-parsing.
+    Queue permits for re-enrichment (more reliable than parsing).
     Expected payload: {
         "status_numbers": ["123456", "789012"],
         "reason": "Manual flag from dashboard"
@@ -671,7 +731,7 @@ async def reparse_permits(request_data: dict):
     """
     try:
         status_numbers = request_data.get("status_numbers", [])
-        reason = request_data.get("reason", "Manual reparse request")
+        reason = request_data.get("reason", "Manual re-enrichment request")
         
         if not status_numbers:
             raise HTTPException(status_code=400, detail="status_numbers is required")
@@ -681,41 +741,62 @@ async def reparse_permits(request_data: dict):
         
         # Limit to prevent overwhelming the system
         if len(status_numbers) > 50:
-            raise HTTPException(status_code=400, detail="Cannot reparse more than 50 permits at once")
+            raise HTTPException(status_code=400, detail="Cannot re-enrich more than 50 permits at once")
         
-        # Import parsing components
-        from services.parsing.worker import parsing_worker
-        from services.parsing.queue import parsing_queue, ParseStrategy, ParseStatus
+        # Import enrichment components
+        from services.enrichment.worker import EnrichmentWorker
+        from db.session import get_session
+        from db.models import Permit
         
         results = []
+        worker = EnrichmentWorker()
         
         for status_no in status_numbers:
             try:
-                # Add to parsing queue
-                job = parsing_queue.add_job(status_no, status_no, ParseStrategy.RETRY_FRESH_SESSION)
+                # Find the permit in the database
+                with get_session() as session:
+                    permit = session.query(Permit).filter(Permit.status_no == status_no).first()
+                    if not permit:
+                        results.append({
+                            "status_no": status_no,
+                            "status": "error",
+                            "error": "Permit not found"
+                        })
+                        continue
+                    
+                    permit_id = permit.id
                 
-                # Queue for background processing (don't wait for completion)
-                results.append({
-                    "status_no": status_no,
-                    "status": "queued",
-                    "job_id": job.permit_id if hasattr(job, 'permit_id') else status_no
-                })
+                # Trigger enrichment for this permit
+                success = await worker.enrich_permit(permit_id)
                 
-                logger.info(f"Queued permit {status_no} for reparse: {reason}")
+                if success:
+                    results.append({
+                        "status_no": status_no,
+                        "status": "enriched",
+                        "message": "Successfully re-enriched"
+                    })
+                    logger.info(f"Successfully re-enriched permit {status_no}: {reason}")
+                else:
+                    results.append({
+                        "status_no": status_no,
+                        "status": "failed",
+                        "error": "Enrichment failed"
+                    })
+                    logger.warning(f"Failed to re-enrich permit {status_no}: {reason}")
                 
             except Exception as e:
-                logger.error(f"Failed to queue permit {status_no}: {e}")
+                logger.error(f"Failed to re-enrich permit {status_no}: {e}")
                 results.append({
                     "status_no": status_no,
                     "status": "error",
                     "error": str(e)
                 })
         
-        successful_queued = len([r for r in results if r["status"] == "queued"])
+        successful_enriched = len([r for r in results if r["status"] == "enriched"])
         
         return {
             "success": True,
-            "message": f"Queued {successful_queued} of {len(status_numbers)} permits for re-parsing",
+            "message": f"Re-enriched {successful_enriched} of {len(status_numbers)} permits",
             "results": results,
             "reason": reason
         }
@@ -723,8 +804,8 @@ async def reparse_permits(request_data: dict):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Reparse API error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to queue permits for reparse: {str(e)}")
+        logger.error(f"Re-enrichment API error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to re-enrich permits: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
