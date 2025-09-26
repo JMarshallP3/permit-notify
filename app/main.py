@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 import sys
 import os
 import logging
+import requests
 from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
@@ -292,6 +293,80 @@ async def run_auto_enrichment(
             status_code=500,
             detail=f"Auto-enrichment failed: {str(e)}"
         )
+
+@app.get("/scrape-and-enrich")
+async def scrape_and_enrich():
+    """
+    Combined endpoint that scrapes today's permits AND enriches them.
+    Perfect for cron jobs - does everything in one call.
+    
+    Returns:
+        Dictionary with scraping and enrichment results
+    """
+    try:
+        logger.info("🔄 Starting combined scrape-and-enrich process")
+        
+        # Step 1: Scrape today's permits
+        today = datetime.now().strftime("%m/%d/%Y")
+        logger.info(f"📅 Scraping permits for {today}")
+        
+        # Call internal scraping endpoint
+        try:
+            scrape_response = requests.get(
+                f"http://localhost:8000/w1/search",
+                params={"begin": today, "end": today, "pages": 5},
+                timeout=120
+            )
+            
+            if scrape_response.status_code == 200:
+                scrape_data = scrape_response.json()
+                permits_found = len(scrape_data.get("items", []))
+                db_info = scrape_data.get("database", {})
+                permits_inserted = db_info.get("inserted", 0)
+                permits_updated = db_info.get("updated", 0)
+                
+                logger.info(f"✅ Scraping completed: {permits_found} found, {permits_inserted} new, {permits_updated} updated")
+            else:
+                logger.warning(f"⚠️ Scraping returned status {scrape_response.status_code}")
+                permits_found = permits_inserted = permits_updated = 0
+                
+        except Exception as scrape_error:
+            logger.error(f"❌ Scraping failed: {scrape_error}")
+            permits_found = permits_inserted = permits_updated = 0
+        
+        # Step 2: Enrich permits (regardless of scraping results)
+        logger.info("🔍 Starting enrichment process")
+        
+        enrichment_results = run_once(limit=20)  # Process up to 20 permits
+        
+        logger.info(f"✅ Enrichment completed: {enrichment_results['processed']} processed, "
+                   f"{enrichment_results['successful']} successful, {enrichment_results['failed']} failed")
+        
+        # Step 3: Return combined results
+        return {
+            "success": True,
+            "timestamp": datetime.now().isoformat(),
+            "date_processed": today,
+            "scraping": {
+                "permits_found": permits_found,
+                "permits_inserted": permits_inserted,
+                "permits_updated": permits_updated
+            },
+            "enrichment": {
+                "permits_processed": enrichment_results['processed'],
+                "permits_successful": enrichment_results['successful'],
+                "permits_failed": enrichment_results['failed']
+            },
+            "message": f"Scraped {permits_found} permits ({permits_inserted} new), enriched {enrichment_results['processed']} permits"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Combined scrape-and-enrich error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/enrich/trigger")
 async def trigger_enrichment():
