@@ -3229,8 +3229,231 @@ class MobileEnhancements {
     }
 }
 
+// Enhanced Dashboard with Mobile Features
+class EnhancedDashboard extends PermitDashboard {
+    constructor() {
+        super();
+        this.darkMode = localStorage.getItem('darkMode') === 'true';
+        this.initDarkMode();
+        this.initDataSync();
+    }
+
+    // Dark Mode Toggle
+    toggleDarkMode() {
+        this.darkMode = !this.darkMode;
+        localStorage.setItem('darkMode', this.darkMode.toString());
+        this.applyDarkMode();
+        
+        // Haptic feedback
+        if (window.mobileEnhancements) {
+            window.mobileEnhancements.addHapticFeedback('light');
+        }
+    }
+
+    initDarkMode() {
+        this.applyDarkMode();
+    }
+
+    applyDarkMode() {
+        if (this.darkMode) {
+            document.body.classList.add('dark-mode');
+        } else {
+            document.body.classList.remove('dark-mode');
+        }
+        
+        // Update dark mode icon
+        const icon = document.querySelector('.dark-mode-icon');
+        if (icon) {
+            icon.textContent = this.darkMode ? '☀️' : '🌙';
+        }
+    }
+
+    // Data Sync between Desktop and Mobile
+    initDataSync() {
+        // Sync data every 30 seconds when app is active
+        this.syncInterval = setInterval(() => {
+            if (!document.hidden) {
+                this.syncData();
+            }
+        }, 30000);
+
+        // Sync when app becomes visible
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                this.syncData();
+            }
+        });
+    }
+
+    async syncData() {
+        try {
+            // Sync reservoir mappings
+            const savedMappings = localStorage.getItem('reservoirMappings');
+            const reviewQueue = localStorage.getItem('reservoirReviewQueue');
+            
+            if (savedMappings || reviewQueue) {
+                // Send to server for sync across devices
+                await fetch('/api/v1/sync/data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        mappings: savedMappings ? JSON.parse(savedMappings) : {},
+                        reviewQueue: reviewQueue ? JSON.parse(reviewQueue) : [],
+                        timestamp: Date.now()
+                    })
+                });
+            }
+        } catch (error) {
+            console.log('Sync not available:', error.message);
+        }
+    }
+
+    // Mobile-specific functions
+    showTopReservoirs() {
+        // Create and show top reservoirs modal
+        const modal = this.createModal('Top Reservoirs', this.generateTopReservoirsContent());
+        document.body.appendChild(modal);
+        modal.style.display = 'flex';
+    }
+
+    showQuickStats() {
+        // Create and show quick stats modal
+        const modal = this.createModal('Quick Stats', this.generateQuickStatsContent());
+        document.body.appendChild(modal);
+        modal.style.display = 'flex';
+    }
+
+    generateTopReservoirsContent() {
+        const reservoirCounts = {};
+        this.permits.forEach(permit => {
+            if (permit.field_name && permit.field_name !== 'Unknown') {
+                reservoirCounts[permit.field_name] = (reservoirCounts[permit.field_name] || 0) + 1;
+            }
+        });
+
+        const sortedReservoirs = Object.entries(reservoirCounts)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10);
+
+        return `
+            <div style="max-height: 400px; overflow-y: auto;">
+                ${sortedReservoirs.map(([reservoir, count], index) => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid var(--border-color);">
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${index + 1}. ${reservoir}</div>
+                        </div>
+                        <div style="font-weight: 700; color: var(--primary-color); font-size: 1.1rem;">${count}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    generateQuickStatsContent() {
+        const today = new Date().toDateString();
+        const todayPermits = this.permits.filter(p => new Date(p.status_date).toDateString() === today);
+        const newDrillCount = this.permits.filter(p => p.purpose_code === 'NEW DRILL').length;
+        const amendmentCount = this.permits.filter(p => p.purpose_code === 'AMENDMENT').length;
+
+        return `
+            <div style="display: grid; gap: 1rem;">
+                <div style="text-align: center; padding: 1rem; background: var(--gradient-primary); color: white; border-radius: 0.5rem;">
+                    <div style="font-size: 2rem; font-weight: 700;">${this.permits.length}</div>
+                    <div style="font-size: 0.875rem; opacity: 0.9;">Total Permits</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: var(--gradient-success); color: white; border-radius: 0.5rem;">
+                    <div style="font-size: 2rem; font-weight: 700;">${todayPermits.length}</div>
+                    <div style="font-size: 0.875rem; opacity: 0.9;">Today's Permits</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: var(--gradient-accent); color: white; border-radius: 0.5rem;">
+                    <div style="font-size: 2rem; font-weight: 700;">${newDrillCount}</div>
+                    <div style="font-size: 0.875rem; opacity: 0.9;">New Drill Permits</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: var(--gradient-warning); color: white; border-radius: 0.5rem;">
+                    <div style="font-size: 2rem; font-weight: 700;">${amendmentCount}</div>
+                    <div style="font-size: 0.875rem; opacity: 0.9;">Amendment Permits</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: #8b5cf6; color: white; border-radius: 0.5rem;">
+                    <div style="font-size: 2rem; font-weight: 700;">${this.reviewQueue.length}</div>
+                    <div style="font-size: 0.875rem; opacity: 0.9;">Under Review</div>
+                </div>
+            </div>
+        `;
+    }
+
+    createModal(title, content) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${title}</h2>
+                    <button class="modal-close" onclick="this.closest('.modal').remove()">×</button>
+                </div>
+                <div class="modal-body">
+                    ${content}
+                </div>
+            </div>
+        `;
+        return modal;
+    }
+
+    // Enhanced permit rendering with "New Reservoir Detected" option
+    renderPermitCard(permit) {
+        const originalCard = super.renderPermitCard(permit);
+        
+        // Check if this is a new/unknown reservoir
+        const isNewReservoir = permit.field_name && 
+                              !this.reservoirMapping[permit.field_name] && 
+                              permit.field_name !== 'Unknown' &&
+                              !permit.field_name.includes('(exactly as shown in RRC records)');
+
+        if (isNewReservoir) {
+            // Add "New Reservoir Detected" banner
+            const cardElement = document.createElement('div');
+            cardElement.innerHTML = originalCard;
+            
+            const banner = document.createElement('div');
+            banner.className = 'new-reservoir-banner';
+            banner.innerHTML = `
+                <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
+                    <div style="font-weight: 600; font-size: 0.875rem;">🆕 New Reservoir Detected</div>
+                    <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">${permit.field_name}</div>
+                    <button onclick="window.dashboard.handleNewReservoir('${permit.field_name.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                            style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; margin-top: 0.5rem; cursor: pointer;">
+                        ⚙️ Manage Reservoir
+                    </button>
+                </div>
+            `;
+            
+            cardElement.querySelector('.permit-card').insertBefore(banner, cardElement.querySelector('.permit-card').firstChild);
+            return cardElement.innerHTML;
+        }
+        
+        return originalCard;
+    }
+
+    // Handle new reservoir detection
+    handleNewReservoir(fieldName, statusNo) {
+        // Add to review queue and open reservoir management
+        this.addToReviewQueue(fieldName, 'Unknown - Needs Review');
+        this.showReservoirManagement();
+        
+        // Switch to Under Review tab
+        setTimeout(() => {
+            const underReviewTab = document.querySelector('[onclick*="switchReservoirTab(\'review\')"]');
+            if (underReviewTab) {
+                underReviewTab.click();
+            }
+        }, 500);
+        
+        // Show success message
+        this.showSuccess(`🆕 "${fieldName}" added to reservoir management for review`);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    window.dashboard = new PermitDashboard();
+    window.dashboard = new EnhancedDashboard();
     window.mobileEnhancements = new MobileEnhancements();
 });
 

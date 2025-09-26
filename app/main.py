@@ -6,6 +6,7 @@ import sys
 import os
 import logging
 import requests
+import time
 from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
@@ -1039,6 +1040,31 @@ async def apply_learned_corrections(limit: int = 20):
     except Exception as e:
         logger.error(f"Apply corrections error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to apply corrections: {str(e)}")
+
+@app.post("/api/v1/sync/data")
+async def sync_data(request_data: dict):
+    """Sync data between desktop and mobile devices."""
+    try:
+        # For now, just acknowledge the sync request
+        # In the future, this could store sync data in the database
+        # and provide cross-device synchronization
+        
+        mappings = request_data.get("mappings", {})
+        review_queue = request_data.get("reviewQueue", [])
+        timestamp = request_data.get("timestamp", 0)
+        
+        logger.info(f"Data sync request received: {len(mappings)} mappings, {len(review_queue)} review items")
+        
+        return {
+            "success": True,
+            "message": "Data sync acknowledged",
+            "synced_at": timestamp,
+            "server_time": int(time.time() * 1000)
+        }
+        
+    except Exception as e:
+        logger.error(f"Data sync error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to sync data: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

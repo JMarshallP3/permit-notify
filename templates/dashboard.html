@@ -47,9 +47,40 @@
                         <div class="stat-label">Amendments</div>
                     </div>
                 </div>
+
+                <!-- Mobile Dark Mode Toggle -->
+                <div class="mobile-only mobile-header-controls">
+                    <button class="btn-icon dark-mode-toggle" onclick="window.dashboard.toggleDarkMode()" title="Toggle Dark Mode">
+                        <span class="dark-mode-icon">🌙</span>
+                    </button>
+                </div>
             </div>
         </div>
     </header>
+
+    <!-- Mobile Top Navigation (iPhone only) -->
+    <nav class="mobile-top-nav mobile-only">
+        <div class="mobile-nav-scroll">
+            <!-- Mobile Action Buttons -->
+            <div class="mobile-action-buttons">
+                <button class="mobile-btn mobile-btn-primary" onclick="window.dashboard.refreshData()">
+                    🔄 Refresh
+                </button>
+                <button class="mobile-btn mobile-btn-accent" onclick="window.dashboard.showReservoirManagement()">
+                    ⚙️ Reservoirs
+                </button>
+                <button class="mobile-btn mobile-btn-secondary" onclick="window.dashboard.showTopReservoirs()">
+                    📊 Top Reservoirs
+                </button>
+                <button class="mobile-btn mobile-btn-info" onclick="window.dashboard.showQuickStats()">
+                    📈 Quick Stats
+                </button>
+                <button class="mobile-btn mobile-btn-secondary" onclick="window.dashboard.exportPermits()">
+                    📤 Export
+                </button>
+            </div>
+        </div>
+    </nav>
 
     <!-- Main Content -->
     <main class="main-content">
