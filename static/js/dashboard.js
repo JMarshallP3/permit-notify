@@ -3002,8 +3002,234 @@ class PermitDashboard {
 }
 
 // Initialize dashboard when page loads
+// Mobile-specific enhancements
+class MobileEnhancements {
+    constructor() {
+        this.isMobile = window.innerWidth <= 768;
+        this.touchStartY = 0;
+        this.touchEndY = 0;
+        this.init();
+    }
+
+    init() {
+        if (this.isMobile) {
+            this.addTouchGestures();
+            this.optimizeForMobile();
+            this.handleOrientationChange();
+        }
+        
+        // Listen for resize events
+        window.addEventListener('resize', () => {
+            this.isMobile = window.innerWidth <= 768;
+            if (this.isMobile) {
+                this.optimizeForMobile();
+            }
+        });
+    }
+
+    addTouchGestures() {
+        // Add pull-to-refresh functionality
+        let startY = 0;
+        let currentY = 0;
+        let pullDistance = 0;
+        const threshold = 100;
+
+        document.addEventListener('touchstart', (e) => {
+            if (window.scrollY === 0) {
+                startY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+            if (window.scrollY === 0 && startY > 0) {
+                currentY = e.touches[0].clientY;
+                pullDistance = currentY - startY;
+                
+                if (pullDistance > 0 && pullDistance < threshold * 2) {
+                    // Visual feedback for pull-to-refresh
+                    document.body.style.transform = `translateY(${Math.min(pullDistance / 3, 50)}px)`;
+                    document.body.style.transition = 'none';
+                }
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchend', () => {
+            if (pullDistance > threshold) {
+                // Trigger refresh
+                if (window.dashboard) {
+                    window.dashboard.refreshData();
+                    this.showMobileToast('🔄 Refreshing data...', 'info');
+                }
+            }
+            
+            // Reset visual state
+            document.body.style.transform = '';
+            document.body.style.transition = 'transform 0.3s ease';
+            startY = 0;
+            pullDistance = 0;
+        }, { passive: true });
+
+        // Add swipe gestures for tabs
+        this.addSwipeGestures();
+    }
+
+    addSwipeGestures() {
+        const reservoirTabs = document.querySelector('.reservoir-tabs');
+        if (!reservoirTabs) return;
+
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        reservoirTabs.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        }, { passive: true });
+
+        reservoirTabs.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            this.handleSwipe(touchStartX, touchEndX);
+        }, { passive: true });
+    }
+
+    handleSwipe(startX, endX) {
+        const swipeThreshold = 50;
+        const diff = startX - endX;
+
+        if (Math.abs(diff) > swipeThreshold) {
+            const tabs = document.querySelectorAll('.reservoir-tab');
+            const activeTab = document.querySelector('.reservoir-tab.active');
+            const activeIndex = Array.from(tabs).indexOf(activeTab);
+
+            if (diff > 0 && activeIndex < tabs.length - 1) {
+                // Swipe left - next tab
+                tabs[activeIndex + 1].click();
+            } else if (diff < 0 && activeIndex > 0) {
+                // Swipe right - previous tab
+                tabs[activeIndex - 1].click();
+            }
+        }
+    }
+
+    optimizeForMobile() {
+        // Add mobile-specific classes
+        document.body.classList.add('mobile-optimized');
+        
+        // Optimize button spacing
+        const buttons = document.querySelectorAll('.btn');
+        buttons.forEach(btn => {
+            if (!btn.style.minHeight) {
+                btn.style.minHeight = '44px';
+            }
+        });
+
+        // Add touch feedback to interactive elements
+        this.addTouchFeedback();
+        
+        // Optimize modals for mobile
+        this.optimizeModalsForMobile();
+    }
+
+    addTouchFeedback() {
+        const interactiveElements = document.querySelectorAll('.btn, .permit-card, .reservoir-tab, .stat-card');
+        
+        interactiveElements.forEach(element => {
+            element.addEventListener('touchstart', () => {
+                element.style.transform = 'scale(0.98)';
+                element.style.transition = 'transform 0.1s ease';
+            }, { passive: true });
+
+            element.addEventListener('touchend', () => {
+                setTimeout(() => {
+                    element.style.transform = '';
+                    element.style.transition = 'transform 0.2s ease';
+                }, 100);
+            }, { passive: true });
+        });
+    }
+
+    optimizeModalsForMobile() {
+        // Make modals slide up from bottom on mobile
+        const modals = document.querySelectorAll('.modal');
+        modals.forEach(modal => {
+            if (this.isMobile) {
+                modal.classList.add('mobile-modal');
+            }
+        });
+    }
+
+    handleOrientationChange() {
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                // Recalculate layouts after orientation change
+                if (window.dashboard) {
+                    window.dashboard.updateCharts();
+                }
+                
+                // Adjust viewport height for mobile browsers
+                const vh = window.innerHeight * 0.01;
+                document.documentElement.style.setProperty('--vh', `${vh}px`);
+            }, 100);
+        });
+
+        // Set initial viewport height
+        const vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+
+    showMobileToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `message-toast toast-${type}`;
+        toast.textContent = message;
+        
+        // Style the toast
+        const colors = {
+            info: { bg: '#3b82f6', text: 'white' },
+            success: { bg: '#10b981', text: 'white' },
+            error: { bg: '#ef4444', text: 'white' },
+            warning: { bg: '#f59e0b', text: 'white' }
+        };
+        
+        const color = colors[type] || colors.info;
+        toast.style.backgroundColor = color.bg;
+        toast.style.color = color.text;
+        
+        document.body.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        }, 10);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-20px)';
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    // Add haptic feedback for supported devices
+    addHapticFeedback(type = 'light') {
+        if ('vibrate' in navigator) {
+            const patterns = {
+                light: [10],
+                medium: [20],
+                heavy: [30],
+                success: [10, 50, 10],
+                error: [50, 100, 50]
+            };
+            navigator.vibrate(patterns[type] || patterns.light);
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     window.dashboard = new PermitDashboard();
+    window.mobileEnhancements = new MobileEnhancements();
 });
 
 // Handle visibility change to pause/resume auto-refresh
