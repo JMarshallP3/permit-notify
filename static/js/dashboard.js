@@ -774,16 +774,23 @@ class PermitDashboard {
     
     // Remove a single permit from review queue
     removeSinglePermitFromReview(fieldName, statusNo) {
+        console.log(`Removing permit ${statusNo} with field name "${fieldName}" from review queue`);
+        console.log('Current review queue:', this.reviewQueue);
+        
         this.reviewQueue = this.reviewQueue.map(item => {
             if (item.fieldName === fieldName) {
+                console.log(`Found matching field name. Current permits:`, item.permits);
                 // Remove the specific permit from this item
                 const updatedPermits = item.permits.filter(permit => permit.status_no !== statusNo);
+                console.log(`After filtering, permits:`, updatedPermits);
                 
                 if (updatedPermits.length === 0) {
                     // If no permits left, mark for removal
+                    console.log(`No permits left for field "${fieldName}", removing entire item`);
                     return null;
                 } else {
                     // Return item with updated permits list
+                    console.log(`${updatedPermits.length} permits remaining for field "${fieldName}"`);
                     return {
                         ...item,
                         permits: updatedPermits
@@ -792,6 +799,8 @@ class PermitDashboard {
             }
             return item;
         }).filter(item => item !== null); // Remove null items
+        
+        console.log('Updated review queue:', this.reviewQueue);
         
         // Save updated review queue
         localStorage.setItem('reviewQueue', JSON.stringify(this.reviewQueue));

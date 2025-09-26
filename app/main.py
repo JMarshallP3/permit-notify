@@ -938,10 +938,30 @@ async def correct_field_name(request_data: dict):
         detail_url = request_data.get("detail_url")
         html_context = request_data.get("html_context")
         
-        if not all([permit_id, status_no, wrong_field, correct_field]):
-            raise HTTPException(status_code=400, detail="permit_id, status_no, wrong_field, and correct_field are required")
+        if not all([status_no, wrong_field, correct_field]):
+            raise HTTPException(status_code=400, detail="status_no, wrong_field, and correct_field are required")
         
-        # Record the correction
+        # If permit_id is not provided, try to find it by status_no
+        if not permit_id:
+            from db.session import get_session
+            from db.models import Permit
+            
+            with get_session() as session:
+                permit = session.query(Permit).filter(Permit.status_no == status_no).first()
+                if permit:
+                    permit_id = permit.id
+                else:
+                    raise HTTPException(status_code=404, detail=f"Permit with status {status_no} not found in database")
+        
+        # Update the permit's field name in the database
+        with get_session() as session:
+            permit = session.query(Permit).filter(Permit.id == permit_id).first()
+            if permit:
+                permit.field_name = correct_field
+                session.commit()
+                logger.info(f"Updated permit {status_no} field name: '{wrong_field}' → '{correct_field}'")
+        
+        # Record the correction for learning
         success = field_learning.record_correction(
             permit_id=permit_id,
             status_no=status_no,
