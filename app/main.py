@@ -406,6 +406,9 @@ async def trigger_enrichment():
             "timestamp": datetime.now().isoformat()
         }
 
+# Flagging endpoints temporarily disabled due to import conflicts
+# Will be re-enabled once database import issues are resolved
+
 @app.get("/enrich/debug/{permit_id}")
 async def debug_enrichment(permit_id: int):
     """
@@ -578,6 +581,72 @@ async def get_reservoir_trends_api(
     except Exception as e:
         logger.error(f"Reservoir trends error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch reservoir trends")
+
+@app.post("/api/v1/permits/reparse")
+async def reparse_permits(request_data: dict):
+    """
+    Queue permits for re-parsing.
+    Expected payload: {
+        "status_numbers": ["123456", "789012"],
+        "reason": "Manual flag from dashboard"
+    }
+    """
+    try:
+        status_numbers = request_data.get("status_numbers", [])
+        reason = request_data.get("reason", "Manual reparse request")
+        
+        if not status_numbers:
+            raise HTTPException(status_code=400, detail="status_numbers is required")
+        
+        if not isinstance(status_numbers, list):
+            raise HTTPException(status_code=400, detail="status_numbers must be a list")
+        
+        # Limit to prevent overwhelming the system
+        if len(status_numbers) > 50:
+            raise HTTPException(status_code=400, detail="Cannot reparse more than 50 permits at once")
+        
+        # Import parsing components
+        from services.parsing.worker import parsing_worker
+        from services.parsing.queue import parsing_queue, ParseStrategy, ParseStatus
+        
+        results = []
+        
+        for status_no in status_numbers:
+            try:
+                # Add to parsing queue
+                job = parsing_queue.add_job(status_no, status_no, ParseStrategy.RETRY_FRESH_SESSION)
+                
+                # Queue for background processing (don't wait for completion)
+                results.append({
+                    "status_no": status_no,
+                    "status": "queued",
+                    "job_id": job.permit_id if hasattr(job, 'permit_id') else status_no
+                })
+                
+                logger.info(f"Queued permit {status_no} for reparse: {reason}")
+                
+            except Exception as e:
+                logger.error(f"Failed to queue permit {status_no}: {e}")
+                results.append({
+                    "status_no": status_no,
+                    "status": "error",
+                    "error": str(e)
+                })
+        
+        successful_queued = len([r for r in results if r["status"] == "queued"])
+        
+        return {
+            "success": True,
+            "message": f"Queued {successful_queued} of {len(status_numbers)} permits for re-parsing",
+            "results": results,
+            "reason": reason
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reparse API error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue permits for reparse: {str(e)}")
 
 @app.get("/api/v1/parsing/status")
 async def get_parsing_status():

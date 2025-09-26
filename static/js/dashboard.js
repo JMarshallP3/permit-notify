@@ -622,6 +622,9 @@ class PermitDashboard {
                     <button id="reviewTab" class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('review')">
                         📋 Under Review (${this.reviewQueue.length})
                     </button>
+                    <button id="flaggedTab" class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('flagged')">
+                        🚩 Flagged for Re-processing (<span id="flaggedCount">0</span>)
+                    </button>
                     <button id="cancelledTab" class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('cancelled')">
                         ❌ Cancelled (${this.cancelledMappings.length})
                     </button>
@@ -677,6 +680,9 @@ class PermitDashboard {
                 break;
             case 'review':
                 this.loadReviewQueueContent(contentDiv);
+                break;
+            case 'flagged':
+                this.loadFlaggedPermitsContent(contentDiv);
                 break;
             case 'cancelled':
                 this.loadCancelledMappingsContent(contentDiv);
@@ -740,6 +746,11 @@ class PermitDashboard {
                                                     style="padding: 0.375rem 0.75rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
                                                 ✏️ Edit
                                             </button>
+                                            <button onclick="window.dashboard.flagIncorrectFieldName('${fieldName.replace(/'/g, "\\'")}')" 
+                                                    style="padding: 0.375rem 0.75rem; background: #ff6b35; color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;" 
+                                                    title="Report this field name as incorrectly parsed">
+                                                🚩 Report Incorrect
+                                            </button>
                                             <button onclick="window.dashboard.moveToReview('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
                                                     style="padding: 0.375rem 0.75rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
                                                 📋 Review
@@ -792,9 +803,90 @@ class PermitDashboard {
                                     style="flex: 1; padding: 0.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
                                 📋 Review Now
                             </button>
+                            <button onclick="window.dashboard.flagForReparse('${item.fieldName.replace(/'/g, "\\'")}')" 
+                                    style="padding: 0.5rem; background: #f59e0b; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap; margin: 0 2px;">
+                                🔄 Re-parse
+                            </button>
                             <button onclick="window.dashboard.removeFromReviewQueue('${item.fieldName.replace(/'/g, "\\'")}')" 
                                     style="padding: 0.5rem; background: var(--error-color); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
                                 ✕ Remove
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    
+    loadFlaggedPermitsContent(contentDiv) {
+        // Get flagged field names from localStorage
+        const flaggedFieldNames = JSON.parse(localStorage.getItem('flaggedFieldNames') || '[]');
+        
+        // Update the flagged count in the tab
+        const flaggedCount = document.getElementById('flaggedCount');
+        if (flaggedCount) {
+            flaggedCount.textContent = flaggedFieldNames.length;
+        }
+        
+        if (flaggedFieldNames.length === 0) {
+            contentDiv.innerHTML = `
+                <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
+                    <h3>No Flagged Field Names</h3>
+                    <p>Field names flagged for incorrect parsing will appear here</p>
+                    <p style="font-size: 0.875rem; margin-top: 1rem;">
+                        Use the <strong>🚩 Report Incorrect</strong> button in the Saved Mappings tab to flag field names with wrong parsing.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+        
+        contentDiv.innerHTML = `
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background: linear-gradient(135deg, #ff6b35, #f7931e); border-radius: 0.75rem; color: white;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem;">🚩 ${flaggedFieldNames.length} Field Name${flaggedFieldNames.length !== 1 ? 's' : ''} Flagged for Re-processing</h3>
+                        <p style="margin: 0; font-size: 0.875rem; opacity: 0.9;">
+                            These field names have incorrect parsing and need manual correction in the parser.
+                        </p>
+                    </div>
+                    <button onclick="window.dashboard.clearAllFlagged()" 
+                            style="padding: 0.75rem 1.5rem; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.875rem;">
+                        🗑️ Clear All
+                    </button>
+                </div>
+            </div>
+            
+            <div style="display: grid; gap: 1rem;">
+                ${flaggedFieldNames.map(item => `
+                    <div style="padding: 1rem; border: 2px solid #ff6b35; border-radius: 0.75rem; background: var(--background-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <span style="background: #ff6b35; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">
+                                        FLAGGED
+                                    </span>
+                                    <span style="font-size: 0.75rem; color: var(--text-secondary);">
+                                        Flagged ${new Date(item.flaggedAt).toLocaleDateString()}
+                                    </span>
+                                </div>
+                                <div style="background: #fff3f0; border: 1px solid #ff6b35; border-radius: 0.375rem; padding: 0.5rem; margin-bottom: 0.75rem;">
+                                    <div style="font-size: 0.75rem; color: #d63031; font-weight: 600; margin-bottom: 0.25rem;">❌ Incorrect Field Name:</div>
+                                    <div style="font-size: 0.875rem; color: var(--text-primary); font-family: monospace; word-break: break-all;">
+                                        "${item.fieldName}"
+                                    </div>
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                    <strong>Note:</strong> This field name needs to be fixed in the parser code. 
+                                    The improved parsing logic should handle cases like this better.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="window.dashboard.unflagFieldName('${item.fieldName.replace(/'/g, "\\'")}', '${item.flaggedAt}')" 
+                                    style="padding: 0.5rem; background: var(--text-secondary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
+                                ✕ Remove Flag
                             </button>
                         </div>
                     </div>
@@ -937,6 +1029,195 @@ class PermitDashboard {
         URL.revokeObjectURL(url);
         
         this.showSuccess('Reservoir mappings exported successfully!');
+    }
+
+    flagIncorrectFieldName(fieldName) {
+        try {
+            // Confirm with user
+            const confirmed = confirm(
+                `Flag field name "${fieldName}" as incorrectly parsed?\n\n` +
+                `This will add it to your flagged list for tracking. The field name needs to be fixed in the parser code to handle cases like this better.`
+            );
+            
+            if (!confirmed) return;
+            
+            // Get existing flagged field names
+            const flaggedFieldNames = JSON.parse(localStorage.getItem('flaggedFieldNames') || '[]');
+            
+            // Check if already flagged
+            const alreadyFlagged = flaggedFieldNames.some(item => item.fieldName === fieldName);
+            if (alreadyFlagged) {
+                this.showError(`Field name "${fieldName}" is already flagged`);
+                return;
+            }
+            
+            // Add to flagged list
+            flaggedFieldNames.push({
+                fieldName: fieldName,
+                flaggedAt: new Date().toISOString(),
+                status: 'pending'
+            });
+            
+            // Save to localStorage
+            localStorage.setItem('flaggedFieldNames', JSON.stringify(flaggedFieldNames));
+            
+            this.showSuccess(`✅ Flagged field name "${fieldName}" for tracking`);
+            
+            // Switch to flagged tab to show the results
+            this.switchReservoirTab('flagged');
+            
+        } catch (error) {
+            console.error('Error flagging field name:', error);
+            this.showError(`Error: ${error.message}`);
+        }
+    }
+
+    async flagForReparse(fieldName) {
+        try {
+            // Confirm with user
+            const confirmed = confirm(
+                `Flag permits with field name "${fieldName}" for re-parsing?\n\n` +
+                `This will queue all permits with this field name to be re-parsed with updated algorithms. The process may take a few minutes.`
+            );
+            
+            if (!confirmed) return;
+
+            // Show loading state
+            this.showInfo(`🔄 Flagging permits for re-parsing...`);
+
+            // Find all permits with this field name
+            const permitsToReparse = this.permits.filter(permit => 
+                permit.field_name && permit.field_name.trim().toLowerCase() === fieldName.trim().toLowerCase()
+            );
+
+            if (permitsToReparse.length === 0) {
+                this.showError(`No permits found with field name "${fieldName}"`);
+                return;
+            }
+
+            // Get existing reparse queue
+            const reparseQueue = JSON.parse(localStorage.getItem('reparseQueue') || '[]');
+            
+            // Add permits to reparse queue
+            let addedCount = 0;
+            permitsToReparse.forEach(permit => {
+                // Check if already in queue
+                const alreadyQueued = reparseQueue.some(item => item.statusNo === permit.status_no);
+                if (!alreadyQueued) {
+                    reparseQueue.push({
+                        statusNo: permit.status_no,
+                        leaseName: permit.lease_name,
+                        fieldName: permit.field_name,
+                        county: permit.county,
+                        operator: permit.operator_name,
+                        flaggedAt: new Date().toISOString(),
+                        status: 'queued',
+                        reason: 'Incorrect field name parsing'
+                    });
+                    addedCount++;
+                }
+            });
+
+            // Save to localStorage
+            localStorage.setItem('reparseQueue', JSON.stringify(reparseQueue));
+
+            if (addedCount > 0) {
+                this.showSuccess(`✅ Flagged ${addedCount} permit${addedCount !== 1 ? 's' : ''} for re-parsing`);
+                
+                // Try to trigger server-side reparse if API is available
+                try {
+                    const statusNumbers = reparseQueue
+                        .filter(item => item.status === 'queued')
+                        .map(item => item.statusNo);
+                    
+                    if (statusNumbers.length > 0) {
+                        const response = await fetch('/api/v1/permits/reparse', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ 
+                                status_numbers: statusNumbers.slice(0, 10), // Limit to 10 at a time
+                                reason: 'Manual flag from dashboard'
+                            })
+                        });
+
+                        if (response.ok) {
+                            this.showSuccess(`🚀 Re-parsing started for ${Math.min(statusNumbers.length, 10)} permits`);
+                        } else {
+                            console.warn('Re-parse API not available, permits queued locally');
+                        }
+                    }
+                } catch (apiError) {
+                    console.warn('Re-parse API not available:', apiError);
+                    // Continue with local queuing
+                }
+                
+            } else {
+                this.showInfo(`All ${permitsToReparse.length} permit${permitsToReparse.length !== 1 ? 's' : ''} with this field name are already queued for re-parsing`);
+            }
+
+            // Remove from review queue since we're handling it
+            this.removeFromReviewQueue(fieldName);
+            
+        } catch (error) {
+            console.error('Error flagging for reparse:', error);
+            this.showError(`Error: ${error.message}`);
+        }
+    }
+
+    clearAllFlagged() {
+        try {
+            const confirmed = confirm(
+                '🗑️ Clear all flagged field names?\n\n' +
+                'This will remove all flagged items from your tracking list.'
+            );
+            
+            if (!confirmed) return;
+            
+            // Clear localStorage
+            localStorage.setItem('flaggedFieldNames', JSON.stringify([]));
+            
+            this.showSuccess('✅ Cleared all flagged field names');
+            
+            // Refresh the flagged tab
+            this.switchReservoirTab('flagged');
+            
+        } catch (error) {
+            console.error('Error clearing flagged items:', error);
+            this.showError(`❌ Failed to clear flagged items: ${error.message}`);
+        }
+    }
+
+    unflagFieldName(fieldName, flaggedAt) {
+        try {
+            const confirmed = confirm(
+                `Remove "${fieldName}" from flagged list?\n\n` +
+                'This will remove it from your tracking list.'
+            );
+            
+            if (!confirmed) return;
+            
+            // Get existing flagged field names
+            const flaggedFieldNames = JSON.parse(localStorage.getItem('flaggedFieldNames') || '[]');
+            
+            // Remove the specific item
+            const updatedFlagged = flaggedFieldNames.filter(item => 
+                !(item.fieldName === fieldName && item.flaggedAt === flaggedAt)
+            );
+            
+            // Save back to localStorage
+            localStorage.setItem('flaggedFieldNames', JSON.stringify(updatedFlagged));
+            
+            this.showSuccess(`✅ Removed "${fieldName}" from flagged list`);
+            
+            // Refresh the flagged tab
+            this.switchReservoirTab('flagged');
+            
+        } catch (error) {
+            console.error('Error removing flagged item:', error);
+            this.showError(`❌ Failed to remove flagged item: ${error.message}`);
+        }
     }
     
     showPermitDetails(permit) {
