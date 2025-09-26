@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Re-parse Button</title>
+</head>
+<body>
+    <h1>Test the Re-parse Button</h1>
+    <p>Open your browser's developer console (F12) and paste this JavaScript to add test data:</p>
+    
+    <pre id="testCode">
+// Add test data to localStorage to see the Re-parse button
+const testReviewQueue = [
+    {
+        fieldName: "Changed Distance to Nearest Lease Line",
+        suggestedReservoir: "EAGLE FORD SHALE",
+        permits: [
+            { status_no: "123456", lease_name: "TEST LEASE 1" },
+            { status_no: "789012", lease_name: "TEST LEASE 2" }
+        ],
+        addedAt: new Date().toISOString(),
+        confidence: 0.85
+    },
+    {
+        fieldName: "Commission Staff expresses no opinion",
+        suggestedReservoir: "WOLFCAMP",
+        permits: [
+            { status_no: "345678", lease_name: "TEST LEASE 3" }
+        ],
+        addedAt: new Date().toISOString(),
+        confidence: 0.75
+    }
+];
+
+localStorage.setItem('reviewQueue', JSON.stringify(testReviewQueue));
+console.log('Test data added! Now refresh the dashboard and open Reservoir Management Center.');
+    </pre>
+    
+    <button onclick="copyToClipboard()">Copy Test Code</button>
+    
+    <script>
+        function copyToClipboard() {
+            const code = document.getElementById('testCode').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Test code copied to clipboard! Paste it in your browser console on the dashboard page.');
+            });
+        }
+    </script>
+    
+    <h2>Steps to Test:</h2>
+    <ol>
+        <li>Go to <a href="http://localhost:8000" target="_blank">http://localhost:8000</a></li>
+        <li>Open Developer Console (F12)</li>
+        <li>Copy and paste the JavaScript code above</li>
+        <li>Press Enter to run it</li>
+        <li>Click "🔧 Manage Reservoirs" button</li>
+        <li>Go to "Under Review" tab</li>
+        <li>You should see the <strong>🔄 Re-parse</strong> button!</li>
+    </ol>
+</body>
+</html>
