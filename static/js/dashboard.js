@@ -3330,10 +3330,42 @@ class EnhancedDashboard extends PermitDashboard {
         const modal = this.createModal('Reservoir Management', this.generateReservoirManagementContent());
         document.body.appendChild(modal);
         modal.style.display = 'flex';
-        // Switch to review tab by default
+        
+        // Set up tab switching functionality
+        const tabs = modal.querySelectorAll('.reservoir-tab');
+        const contents = modal.querySelectorAll('.reservoir-tab-content');
+        
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs and contents
+                tabs.forEach(t => t.classList.remove('active'));
+                contents.forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                
+                // Show corresponding content
+                const tabName = tab.getAttribute('data-tab');
+                const content = modal.querySelector(`[data-content="${tabName}"]`);
+                if (content) {
+                    content.classList.add('active');
+                    
+                    // Load content based on tab
+                    if (tabName === 'review') {
+                        const reviewDiv = content.querySelector('#modal-review-queue');
+                        if (reviewDiv) this.loadReviewQueueContent(reviewDiv);
+                    } else if (tabName === 'saved') {
+                        const savedDiv = content.querySelector('#modal-saved-mappings');
+                        if (savedDiv) this.loadSavedMappingsContent(savedDiv);
+                    }
+                }
+            });
+        });
+        
+        // Load initial content (review tab)
         setTimeout(() => {
-            const reviewTab = modal.querySelector('[data-tab="review"]');
-            if (reviewTab) reviewTab.click();
+            const reviewDiv = modal.querySelector('#modal-review-queue');
+            if (reviewDiv) this.loadReviewQueueContent(reviewDiv);
         }, 100);
     }
 
@@ -3590,18 +3622,8 @@ class EnhancedDashboard extends PermitDashboard {
         // Add to review queue and open reservoir management
         this.addToReviewQueue(fieldName, 'Unknown - Needs Review');
         
-        // Open reservoir management modal
-        const modal = this.createModal('Reservoir Management', this.generateReservoirManagementContent());
-        document.body.appendChild(modal);
-        modal.style.display = 'flex';
-        
-        // Switch to Under Review tab
-        setTimeout(() => {
-            const underReviewTab = modal.querySelector('[onclick*="switchReservoirTab(\'review\')"]');
-            if (underReviewTab) {
-                underReviewTab.click();
-            }
-        }, 500);
+        // Open reservoir management modal using the same function as mobile buttons
+        this.showReservoirManagement();
         
         // Show success message
         this.showMobileToast(`🆕 "${fieldName}" added for review`, 'success');
@@ -3617,35 +3639,6 @@ class EnhancedDashboard extends PermitDashboard {
         }
     }
 
-    // Generate reservoir management content for modal
-    generateReservoirManagementContent() {
-        return `
-            <div class="reservoir-management">
-                <div class="reservoir-tabs">
-                    <button class="reservoir-tab active" onclick="window.dashboard.switchReservoirTab('saved')">
-                        💾 Saved Mappings (${Object.keys(this.reservoirMapping).length})
-                    </button>
-                    <button class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('review')">
-                        🔍 Under Review (${this.reviewQueue.length})
-                    </button>
-                    <button class="reservoir-tab" onclick="window.dashboard.switchReservoirTab('cancelled')">
-                        ❌ Cancelled (${this.cancelledMappings.length})
-                    </button>
-                </div>
-                <div class="reservoir-content">
-                    <div id="savedMappings" class="tab-content active">
-                        ${this.generateSavedMappingsContent()}
-                    </div>
-                    <div id="reviewQueue" class="tab-content">
-                        ${this.generateReviewQueueContent()}
-                    </div>
-                    <div id="cancelledMappings" class="tab-content">
-                        ${this.generateCancelledMappingsContent()}
-                    </div>
-                </div>
-            </div>
-        `;
-    }
 
     generateSavedMappingsContent() {
         const mappings = Object.entries(this.reservoirMapping);
