@@ -69,15 +69,11 @@ async def startup_event():
     
     # Initialize database tables on startup.
     try:
-        # Check if we're in Railway environment
-        if os.getenv('RAILWAY_ENVIRONMENT'):
-            logger.info("Running in Railway environment - enabling database operations")
-            # Base.metadata.create_all(bind=engine)
-            logger.info("Database initialization completed")
-        else:
-            logger.info("Running locally - database operations disabled for testing")
+        logger.info("Initializing database operations")
+        # Base.metadata.create_all(bind=engine)  # Uncomment if needed
+        logger.info("✅ Database initialization completed")
     except Exception as e:
-        logger.error(f"Failed to create database tables: {e}")
+        logger.error(f"❌ Failed to initialize database: {e}")
         # Don't raise - just log the error
         pass
 
@@ -122,24 +118,13 @@ async def scrape():
 async def get_permits(limit: int = Query(50, ge=1, le=1000)):
     """Get recent permits from database."""
     try:
-        # Enable database operations in Railway or Docker development environment
-        railway_env = os.getenv('RAILWAY_ENVIRONMENT')
-        if railway_env or os.getenv('DATABASE_URL'):  # Enable if Railway env or DATABASE_URL is set
-            logger.info(f"Enabling database queries (env: {railway_env or 'docker'})")
-            permits = get_recent_permits(limit)
-            return {
-                "permits": permits,
-                "count": len(permits),
-                "limit": limit
-            }
-        else:
-            logger.info("Running locally - database query disabled for testing")
-            return {
-                "permits": [],
-                "count": 0,
-                "limit": limit,
-                "note": "Database query disabled for testing"
-            }
+        logger.info(f"Fetching {limit} recent permits from database")
+        permits = get_recent_permits(limit)
+        return {
+            "permits": permits,
+            "count": len(permits),
+            "limit": limit
+        }
     except Exception as e:
         logger.error(f"Database query error: {e}")
         return {"error": str(e), "permits": []}
@@ -178,16 +163,14 @@ async def w1_search(
         
         # Store results in database if we have items
         if result.get("items"):
-            # Enable database operations in Railway or Docker development environment
-            railway_env = os.getenv('RAILWAY_ENVIRONMENT')
-            if railway_env or os.getenv('DATABASE_URL'):  # Enable if Railway env or DATABASE_URL is set
-                logger.info(f"Storing {len(result['items'])} permits in database (env: {railway_env or 'docker'})")
+            try:
+                logger.info(f"Storing {len(result['items'])} permits in database")
                 upsert_result = upsert_permits(result["items"])
                 result["database"] = upsert_result
-                logger.info(f"Stored {upsert_result['inserted']} new permits, updated {upsert_result['updated']} permits")
-            else:
-                logger.info(f"Found {len(result['items'])} permits (database storage disabled for testing)")
-                result["database"] = {"inserted": 0, "updated": 0, "note": "Database storage disabled for testing"}
+                logger.info(f"✅ Stored {upsert_result['inserted']} new permits, updated {upsert_result['updated']} permits")
+            except Exception as db_error:
+                logger.error(f"❌ Database storage failed: {db_error}")
+                result["database"] = {"inserted": 0, "updated": 0, "error": str(db_error)}
         else:
             result["database"] = {"inserted": 0, "updated": 0, "note": "No permits found"}
             logger.info("No permits found")
