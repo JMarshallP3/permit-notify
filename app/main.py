@@ -55,7 +55,19 @@ async def dashboard_alt(request: Request):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables on startup."""
+    """Initialize database tables and start background cron on startup."""
+    # Start background cron for permit scraping
+    try:
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from background_cron import background_cron
+        background_cron.start()
+        logger.info("🚀 Background permit scraper started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start background cron: {e}")
+    
+    # Initialize database tables on startup.
     try:
         # Check if we're in Railway environment
         if os.getenv('RAILWAY_ENVIRONMENT'):
@@ -647,6 +659,16 @@ async def reparse_permits(request_data: dict):
     except Exception as e:
         logger.error(f"Reparse API error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to queue permits for reparse: {str(e)}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up background cron on shutdown."""
+    try:
+        from background_cron import background_cron
+        background_cron.stop()
+        logger.info("🛑 Background permit scraper stopped")
+    except Exception as e:
+        logger.error(f"❌ Failed to stop background cron: {e}")
 
 @app.get("/api/v1/parsing/status")
 async def get_parsing_status():

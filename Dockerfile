@@ -32,7 +32,7 @@ COPY static/ ./static/
 COPY templates/ ./templates/
 COPY alembic.ini ./
 COPY well_number_extractor.py ./
-COPY cron_service.py ./
+COPY background_cron.py ./
 COPY start.sh ./
 
 # Expose port
