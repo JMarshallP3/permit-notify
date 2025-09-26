@@ -491,6 +491,10 @@ class PermitDashboard {
         }
         
         console.warn(`Could not find permit ID for status ${statusNo}`);
+        console.log('Available permits in main list:', this.permits.map(p => ({status: p.status_no, id: p.id})));
+        console.log('Available permits in review queue:', this.reviewQueue.map(item => 
+            item.permits.map(p => ({status: p.status_no, id: p.id}))
+        ));
         return null;
     }
     
@@ -596,7 +600,13 @@ class PermitDashboard {
             setTimeout(() => {
                 document.body.removeChild(successMsg);
                 this.updateReviewQueueDisplay();
-                this.updateSavedMappingsDisplay();
+                // Update the saved mappings tab if it exists
+                if (typeof this.updateSavedMappingsDisplay === 'function') {
+                    this.updateSavedMappingsDisplay();
+                } else {
+                    // Refresh the entire reservoir management display
+                    this.switchReservoirTab('saved');
+                }
             }, 2000);
             
         } catch (error) {
@@ -683,7 +693,13 @@ class PermitDashboard {
                     document.body.removeChild(successMsg);
                     this.loadPermitData();
                     this.updateReviewQueueDisplay();
-                    this.updateSavedMappingsDisplay();
+                    // Update the saved mappings tab if it exists
+                    if (typeof this.updateSavedMappingsDisplay === 'function') {
+                        this.updateSavedMappingsDisplay();
+                    } else {
+                        // Refresh the entire reservoir management display
+                        this.switchReservoirTab('saved');
+                    }
                 }, 2000);
                 
             } else {
