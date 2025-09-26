@@ -47,6 +47,10 @@ def _is_valid_field_name(text: str) -> bool:
         r'changed.*survey',
         r'allocation wells',
         r'drilled concurre',
+        r'commission staff',
+        r'expresses no opinion',
+        r'staff expresses',
+        r'no opinion',
         
         # Administrative text
         r'suggested:',
@@ -130,6 +134,42 @@ def _clean_field_name(text: str) -> str:
         return clean_name
     else:
         return None
+
+def _get_next_value(cell_texts: list, start_index: int, max_distance: int = 5) -> str:
+    """Get the next non-empty value after a given index."""
+    for i in range(start_index + 1, min(start_index + max_distance + 1, len(cell_texts))):
+        text = cell_texts[i]
+        if text and text.strip() and len(text.strip()) > 0:
+            return text.strip()
+    return None
+
+def _is_valid_location_value(text: str, field_type: str) -> bool:
+    """Validate if text looks like a valid location field value."""
+    if not text or len(text) > 50:
+        return False
+    
+    text_clean = text.strip()
+    
+    if field_type == "section":
+        # Section should be a number or simple alphanumeric
+        return bool(re.match(r'^[A-Z0-9\-]{1,10}$', text_clean))
+    
+    elif field_type == "block":
+        # Block should be a number or simple alphanumeric  
+        return bool(re.match(r'^[A-Z0-9\-]{1,10}$', text_clean))
+    
+    elif field_type == "survey":
+        # Survey should be a name, not "Abstr" or other junk
+        if text_clean.lower() in ['abstr', 'abstract', 'county', 'name', 'lines']:
+            return False
+        # Should contain letters and be reasonable length
+        return bool(re.match(r'^[A-Z\s,\.\-&]{2,30}$', text_clean)) and len(text_clean) >= 2
+    
+    elif field_type == "abstract":
+        # Abstract should be alphanumeric, often starting with A-
+        return bool(re.match(r'^[A-Z]?-?[0-9]{1,6}$', text_clean)) or bool(re.match(r'^[A-Z]{1,3}-[0-9]{1,6}$', text_clean))
+    
+    return True
 
 def _label_value(tree, label_texts: list[str]) -> str | None:
     """
@@ -288,41 +328,69 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
             if acres:
                 break
     
-    # IMPROVED: Look for the specific pattern: "Section:", "", "Block:", "", "Survey:MUSQUIZ, R", "Abstract #:", "7"
-    # This pattern appears reliably in the HTML structure
+    # FLEXIBLE: Look for section/block/survey/abstract data with multiple patterns
     pattern_found = False
-    for i, text in enumerate(cell_texts):
-        if text == "Section:" and i + 8 < len(cell_texts):
-            # Check if we have the expected pattern
-            pattern_cells = cell_texts[i:i+9]  # Get next 9 cells
+    
+    # Try multiple approaches to find the location data
+    location_patterns = [
+        # Pattern 1: "Section:", value, "Block:", value, "Survey:NAME", "Abstract #:", value
+        {"section_key": "Section:", "block_key": "Block:", "survey_key": "Survey:", "abstract_key": "Abstract #:"},
+        # Pattern 2: Just the labels without colons
+        {"section_key": "Section", "block_key": "Block", "survey_key": "Survey", "abstract_key": "Abstract"},
+        # Pattern 3: Different variations
+        {"section_key": "Sec", "block_key": "Blk", "survey_key": "Survey", "abstract_key": "Abs"},
+    ]
+    
+    for pattern in location_patterns:
+        section_idx = None
+        block_idx = None
+        survey_idx = None
+        abstract_idx = None
+        
+        # Find indices of each key
+        for i, text in enumerate(cell_texts):
+            text_clean = text.strip().replace(":", "")
             
-            if (len(pattern_cells) >= 9 and 
-                pattern_cells[0] == "Section:" and
-                pattern_cells[2] == "Block:" and
-                "Survey:" in pattern_cells[4] and
-                pattern_cells[5] == "Abstract #:"):
-                
-                # Extract the values
-                section_val = pattern_cells[1] if pattern_cells[1] else None
-                block_val = pattern_cells[3] if pattern_cells[3] else None
-                
-                # Extract survey from "Survey:MUSQUIZ, R" format
-                survey_text = pattern_cells[4]
-                if "Survey:" in survey_text:
+            if pattern["section_key"].replace(":", "") in text_clean and section_idx is None:
+                section_idx = i
+            elif pattern["block_key"].replace(":", "") in text_clean and block_idx is None:
+                block_idx = i
+            elif pattern["survey_key"].replace(":", "") in text_clean and survey_idx is None:
+                survey_idx = i
+            elif pattern["abstract_key"].replace(":", "") in text_clean and abstract_idx is None:
+                abstract_idx = i
+        
+        # If we found at least section and block, try to extract values
+        if section_idx is not None and block_idx is not None:
+            # Extract section value (next non-empty cell after section label)
+            section_val = _get_next_value(cell_texts, section_idx)
+            if section_val and _is_valid_location_value(section_val, "section"):
+                section = section_val
+            
+            # Extract block value
+            block_val = _get_next_value(cell_texts, block_idx)
+            if block_val and _is_valid_location_value(block_val, "block"):
+                block = block_val
+            
+            # Extract survey value
+            if survey_idx is not None:
+                survey_val = _get_next_value(cell_texts, survey_idx)
+                if survey_val and _is_valid_location_value(survey_val, "survey"):
+                    survey = survey_val
+                elif "Survey:" in cell_texts[survey_idx]:
+                    # Handle "Survey:MUSQUIZ, R" format
+                    survey_text = cell_texts[survey_idx]
                     survey_val = survey_text.replace("Survey:", "").strip()
-                    survey_val = survey_val if survey_val else None
-                else:
-                    survey_val = None
-                
-                abstract_val = pattern_cells[6] if pattern_cells[6] else None
-                
-                # Clean empty values (convert empty strings to None)
-                section = section_val if section_val and section_val.strip() and section_val.strip() != '' else None
-                block = block_val if block_val and block_val.strip() and block_val.strip() != '' else None
-                survey = survey_val if survey_val and survey_val.strip() and survey_val.strip() != '' else None
-                abstract_no = abstract_val if abstract_val and abstract_val.strip() and abstract_val.strip() != '' else None
-                
-                # Found the pattern, no need to continue
+                    if survey_val and _is_valid_location_value(survey_val, "survey"):
+                        survey = survey_val
+            
+            # Extract abstract value
+            if abstract_idx is not None:
+                abstract_val = _get_next_value(cell_texts, abstract_idx)
+                if abstract_val and _is_valid_location_value(abstract_val, "abstract"):
+                    abstract_no = abstract_val
+            
+            if section or block or survey or abstract_no:
                 pattern_found = True
                 break
     
