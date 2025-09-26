@@ -594,6 +594,72 @@ async def get_reservoir_trends_api(
         logger.error(f"Reservoir trends error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch reservoir trends")
 
+@app.post("/enrich/today")
+async def enrich_today_permits():
+    """
+    Enrich all permits from today with detailed information.
+    This extracts field names, acres, location data, etc. from detail pages.
+    """
+    try:
+        from datetime import datetime, timedelta
+        from db.session import get_session
+        from db.models import Permit
+        from services.enrichment.worker import EnrichmentWorker
+        
+        today = datetime.now().date()
+        
+        # Get today's permits that need enrichment
+        with get_session() as session:
+            permits = session.query(Permit).filter(
+                Permit.status_date >= today,
+                Permit.status_date < today + timedelta(days=1)
+            ).all()
+            
+            if not permits:
+                return {
+                    "success": True,
+                    "message": "No permits found for today",
+                    "enriched_count": 0,
+                    "date": today.isoformat()
+                }
+            
+            logger.info(f"🔄 Starting enrichment for {len(permits)} permits from {today}")
+            
+            # Initialize enrichment worker
+            worker = EnrichmentWorker()
+            enriched_count = 0
+            
+            # Enrich each permit
+            for permit in permits:
+                try:
+                    # Check if already enriched
+                    if permit.field_name or permit.acres or permit.section:
+                        continue  # Skip already enriched permits
+                    
+                    # Enrich the permit
+                    success = await worker.enrich_permit(permit.id)
+                    if success:
+                        enriched_count += 1
+                        logger.info(f"✅ Enriched permit {permit.status_no}")
+                    else:
+                        logger.warning(f"⚠️ Failed to enrich permit {permit.status_no}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error enriching permit {permit.status_no}: {e}")
+                    continue
+            
+            return {
+                "success": True,
+                "message": f"Enrichment completed for {today}",
+                "total_permits": len(permits),
+                "enriched_count": enriched_count,
+                "date": today.isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"Enrichment error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to enrich today's permits: {str(e)}")
+
 @app.post("/api/v1/permits/reparse")
 async def reparse_permits(request_data: dict):
     """

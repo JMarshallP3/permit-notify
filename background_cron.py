@@ -36,7 +36,7 @@ class BackgroundCron:
         return True
     
     def scrape_permits(self):
-        """Scrape today's permits."""
+        """Scrape and enrich today's permits."""
         try:
             if not self.is_business_hours():
                 logger.info("⏰ Outside business hours, skipping scrape")
@@ -46,7 +46,7 @@ class BackgroundCron:
             today = datetime.now().strftime("%m/%d/%Y")
             logger.info(f"🔍 Background scrape starting for {today}")
             
-            # Use localhost since we're in the same container
+            # Step 1: Scrape permits
             api_url = "http://localhost:8000/w1/search"
             params = {
                 'begin': today,
@@ -60,11 +60,26 @@ class BackgroundCron:
                 data = response.json()
                 permit_count = len(data.get('items', []))
                 logger.info(f"✅ Background scrape completed: {permit_count} permits found")
+                
+                # Step 2: Trigger enrichment for today's permits
+                if permit_count > 0:
+                    logger.info(f"🔄 Starting enrichment for {permit_count} permits")
+                    enrich_url = "http://localhost:8000/enrich/today"
+                    
+                    enrich_response = requests.post(enrich_url, timeout=600)  # 10 minute timeout
+                    
+                    if enrich_response.status_code == 200:
+                        enrich_data = enrich_response.json()
+                        enriched_count = enrich_data.get('enriched_count', 0)
+                        logger.info(f"✅ Background enrichment completed: {enriched_count} permits enriched")
+                    else:
+                        logger.warning(f"⚠️ Background enrichment failed: {enrich_response.status_code}")
+                        
             else:
                 logger.warning(f"⚠️ Background scrape failed: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"❌ Background scrape error: {e}")
+            logger.error(f"❌ Background scrape/enrichment error: {e}")
     
     def run_scheduler(self):
         """Run the scheduler in a background thread."""
