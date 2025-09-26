@@ -22,27 +22,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN python -m playwright install --with-deps chromium
 
 # Copy application code
-COPY app/ ./app/
-COPY routes/ ./routes/
 COPY services/ ./services/
 COPY db/ ./db/
-COPY tools/ ./tools/
-COPY alembic/ ./alembic/
-COPY static/ ./static/
-COPY templates/ ./templates/
-COPY alembic.ini ./
-COPY well_number_extractor.py ./
 COPY cron_service.py ./
-COPY start.sh ./
-
-# Expose port
-EXPOSE 8000
 
 # Set environment variables
 ENV PYTHONPATH=/app
 
-# Make start script executable
-RUN chmod +x start.sh
-
-# Run the application with migrations
-CMD ["./start.sh"]
+# Run the cron service
+CMD ["python", "cron_service.py"]
