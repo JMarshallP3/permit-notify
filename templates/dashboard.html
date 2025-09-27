@@ -348,5 +348,27 @@
     </main>
 
     <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/store.js"></script>
+    <script>
+        // Initialize real-time store and connect to dashboard
+        document.addEventListener('DOMContentLoaded', async () => {
+            // TODO: Get org_id from auth/session, for now use default
+            const orgId = 'default_org';
+            
+            await window.PermitStore.init(orgId);
+            
+            // Subscribe to store changes and refresh dashboard
+            window.PermitStore.subscribe(() => {
+                if (window.dashboard && typeof window.dashboard.refreshFromStore === 'function') {
+                    window.dashboard.refreshFromStore();
+                }
+            });
+            
+            // Initial render from store
+            if (window.dashboard && typeof window.dashboard.refreshFromStore === 'function') {
+                window.dashboard.refreshFromStore();
+            }
+        });
+    </script>
 </body>
 </html>

@@ -1,7 +1,11 @@
-from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi import FastAPI, Query, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any, Set
+import asyncio
 import sys
 import os
 import logging
@@ -16,9 +20,11 @@ from services.enrichment.worker import EnrichmentWorker, run_once
 from services.enrichment.detail_parser import parse_detail_page
 from services.enrichment.pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
 from services.field_learning import field_learning
-from db.models import Permit
-from db.session import Base, engine
+from db.models import Permit, Event
+from db.session import Base, engine, get_session
 from db.repo import upsert_permits, get_recent_permits, get_reservoir_trends
+from sqlalchemy import select, func
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,54 @@ app = FastAPI(
     description="Professional permit monitoring dashboard and API",
     version="1.0.0"
 )
+
+# Add CORS middleware for real-time sync
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Tighten for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------- Pydantic Models for Real-time Sync ----------------------
+class PermitOut(BaseModel):
+    id: int
+    org_id: str
+    status_no: Optional[str] = None
+    operator_name: Optional[str] = None
+    lease_name: Optional[str] = None
+    field_name: Optional[str] = None
+    version: int
+    updated_at: datetime
+
+    @classmethod
+    def from_orm_row(cls, row: Permit):
+        return cls(
+            id=row.id,
+            org_id=row.org_id,
+            status_no=row.status_no,
+            operator_name=row.operator_name,
+            lease_name=row.lease_name,
+            field_name=row.field_name,
+            version=row.version,
+            updated_at=row.updated_at,
+        )
+
+class PermitDeltaResponse(BaseModel):
+    last_event_id: int
+    permits: List[PermitOut]
+
+# ---------------------- Tenant Authentication (Placeholder) ----------------------
+def get_current_org_id(request: Request) -> str:
+    """
+    Extract org_id from request. For now, return default.
+    TODO: Implement JWT token parsing or session-based auth.
+    """
+    # Placeholder: In production, extract from JWT token or session
+    # For now, check query param or header, fallback to default
+    org_id = request.query_params.get('org_id') or request.headers.get('X-Org-ID')
+    return org_id or 'default_org'
 
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -55,6 +109,109 @@ async def dashboard_alt(request: Request):
     """Alternative dashboard route."""
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
+# ---------------------- WebSocket Manager for Real-time Broadcasting ----------------------
+class WSManager:
+    def __init__(self):
+        self.active: Dict[str, Set[WebSocket]] = {}  # org_id -> set of websockets
+        self._lock = asyncio.Lock()
+
+    async def connect(self, ws: WebSocket, org_id: str):
+        await ws.accept()
+        async with self._lock:
+            if org_id not in self.active:
+                self.active[org_id] = set()
+            self.active[org_id].add(ws)
+
+    async def disconnect(self, ws: WebSocket, org_id: str):
+        async with self._lock:
+            if org_id in self.active:
+                self.active[org_id].discard(ws)
+                if not self.active[org_id]:
+                    del self.active[org_id]
+
+    async def broadcast_to_org(self, org_id: str, message: Dict[str, Any]):
+        """Broadcast message only to websockets for the specified org."""
+        dead = []
+        async with self._lock:
+            if org_id not in self.active:
+                return
+            for ws in list(self.active[org_id]):
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    dead.append(ws)
+        for ws in dead:
+            await self.disconnect(ws, org_id)
+
+ws_manager = WSManager()
+
+@app.websocket("/ws/events")
+async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_org')):
+    """Tenant-scoped WebSocket endpoint for real-time updates."""
+    await ws_manager.connect(websocket, org_id)
+    try:
+        while True:
+            # Keep connection alive; client need not send anything
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, org_id)
+
+# ---------------------- Background Event Poller ----------------------
+POLL_INTERVAL = float(os.getenv("EVENT_POLL_INTERVAL_SECONDS", "1.0"))
+
+async def _poll_and_broadcast_events():
+    """Poll the events table and broadcast new permit deltas to WS clients per org."""
+    # Initialize last seen id to current max
+    last_seen = 0
+    with get_session() as session:
+        last_seen = session.execute(select(func.coalesce(func.max(Event.id), 0))).scalar_one()
+
+    while True:
+        await asyncio.sleep(POLL_INTERVAL)
+        try:
+            with get_session() as session:
+                new_events = session.execute(
+                    select(Event).where(Event.id > last_seen).order_by(Event.id.asc())
+                ).scalars().all()
+
+                if not new_events:
+                    continue
+
+                last_seen = new_events[-1].id
+
+                # Group events by org_id
+                events_by_org = {}
+                for event in new_events:
+                    if event.entity == "permit":
+                        if event.org_id not in events_by_org:
+                            events_by_org[event.org_id] = []
+                        events_by_org[event.org_id].append(event.entity_id)
+
+                # Broadcast to each org separately
+                for org_id, permit_ids in events_by_org.items():
+                    if not permit_ids:
+                        continue
+
+                    # De-dupe but preserve relative order
+                    ids_unique = list(dict.fromkeys(permit_ids))
+                    rows = session.execute(
+                        select(Permit)
+                        .where(Permit.id.in_(ids_unique))
+                        .where(Permit.org_id == org_id)  # Ensure tenant isolation
+                    ).scalars().all()
+                    row_map = {r.id: r for r in rows}
+                    ordered = [row_map[i] for i in ids_unique if i in row_map]
+
+                    payload = {
+                        "type": "batch.permit.delta",
+                        "last_event_id": last_seen,
+                        "permits": [PermitOut.from_orm_row(p).dict() for p in ordered],
+                    }
+                    await ws_manager.broadcast_to_org(org_id, payload)
+        except Exception as e:
+            # Don't crash the loop; log if you have logging configured
+            logger.error(f"[event poller] error: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database tables and start background cron on startup."""
@@ -68,6 +225,13 @@ async def startup_event():
         logger.info("🚀 Background permit scraper started (every 10 minutes)")
     except Exception as e:
         logger.error(f"❌ Failed to start background cron: {e}")
+    
+    # Start background event poller for real-time WebSocket broadcasting
+    try:
+        asyncio.create_task(_poll_and_broadcast_events())
+        logger.info("🔄 Real-time event broadcaster started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start event broadcaster: {e}")
     
     # Initialize database tables on startup.
     try:
@@ -115,6 +279,65 @@ async def scrape():
     except Exception as e:
         logger.error(f"Scraping error: {e}")
         return {"error": str(e), "items": [], "warning": "Scraping failed"}
+
+# ---------------------- Tenant-Scoped Delta Sync API ----------------------
+@app.get("/permits", response_model=PermitDeltaResponse)
+def get_permits_since(
+    request: Request,
+    since_event_id: Optional[int] = Query(default=None, alias="since_event_id"),
+    org_id: str = Depends(get_current_org_id)
+):
+    """
+    Tenant-scoped delta sync endpoint.
+    Returns permits that have changed since the given event ID for the current org.
+    """
+    with get_session() as session:  # type: Session
+        # Current max event id for this org (so client can advance even if there are no new rows)
+        last_event_id = session.execute(
+            select(func.coalesce(func.max(Event.id), 0))
+            .where(Event.org_id == org_id)
+        ).scalar_one()
+
+        if since_event_id is None:
+            # Cold start: return recent permits for this org
+            permits = session.execute(
+                select(Permit)
+                .where(Permit.org_id == org_id)
+                .order_by(Permit.updated_at.desc())
+                .limit(500)
+            ).scalars().all()
+            return {
+                "last_event_id": last_event_id,
+                "permits": [PermitOut.from_orm_row(p) for p in permits],
+            }
+
+        # Hot path: collect changed permit IDs since the given event id for this org
+        changed_ids = session.execute(
+            select(Event.entity_id)
+            .where(Event.id > since_event_id)
+            .where(Event.entity == "permit")
+            .where(Event.org_id == org_id)
+            .order_by(Event.id.asc())
+        ).scalars().all()
+
+        if not changed_ids:
+            return {"last_event_id": last_event_id, "permits": []}
+
+        ids_unique = list(dict.fromkeys(changed_ids))  # de-dupe while preserving order
+        rows = session.execute(
+            select(Permit)
+            .where(Permit.id.in_(ids_unique))
+            .where(Permit.org_id == org_id)  # Double-check tenant isolation
+        ).scalars().all()
+
+        # Keep order similar to ids_unique
+        row_map = {r.id: r for r in rows}
+        ordered = [row_map[i] for i in ids_unique if i in row_map]
+
+        return {
+            "last_event_id": last_event_id,
+            "permits": [PermitOut.from_orm_row(p) for p in ordered],
+        }
 
 @app.get("/api/v1/permits")
 async def get_permits(limit: int = Query(50, ge=1, le=1000)):
@@ -919,16 +1142,17 @@ async def process_parsing_queue():
         }
 
 @app.post("/api/v1/field-corrections/correct")
-async def correct_field_name(request_data: dict):
+async def correct_field_name(request: Request, request_data: dict, org_id: str = Depends(get_current_org_id)):
     """
-    Record a field name correction for learning.
+    Record a field name correction for learning with tenant isolation and optimistic concurrency.
     Expected payload: {
         "permit_id": 123,
         "status_no": "910767",
         "wrong_field": "LEASE NAME ABC",
         "correct_field": "SPRABERRY (TREND AREA)",
         "detail_url": "https://...",
-        "html_context": "..."
+        "html_context": "...",
+        "if_version": 5  # Optional: for optimistic concurrency control
     }
     """
     try:
@@ -938,29 +1162,54 @@ async def correct_field_name(request_data: dict):
         correct_field = request_data.get("correct_field")
         detail_url = request_data.get("detail_url")
         html_context = request_data.get("html_context")
+        if_version = request_data.get("if_version")  # Optional optimistic concurrency control
         
         if not all([status_no, wrong_field, correct_field]):
             raise HTTPException(status_code=400, detail="status_no, wrong_field, and correct_field are required")
         
-        # If permit_id is not provided, try to find it by status_no
+        # If permit_id is not provided, try to find it by status_no (with tenant isolation)
         if not permit_id:
-            from db.session import get_session
-            from db.models import Permit
-            
             with get_session() as session:
-                permit = session.query(Permit).filter(Permit.status_no == status_no).first()
+                permit = session.query(Permit).filter(
+                    Permit.status_no == status_no,
+                    Permit.org_id == org_id  # Tenant isolation
+                ).first()
                 if permit:
                     permit_id = permit.id
                 else:
-                    raise HTTPException(status_code=404, detail=f"Permit with status {status_no} not found in database")
+                    raise HTTPException(status_code=404, detail=f"Permit with status {status_no} not found in your organization")
         
-        # Update the permit's field name in the database
+        # Update the permit's field name with tenant isolation and optimistic concurrency
         with get_session() as session:
-            permit = session.query(Permit).filter(Permit.id == permit_id).first()
-            if permit:
-                permit.field_name = correct_field
-                session.commit()
-                logger.info(f"Updated permit {status_no} field name: '{wrong_field}' → '{correct_field}'")
+            # Build query with tenant isolation
+            query = session.query(Permit).filter(
+                Permit.id == permit_id,
+                Permit.org_id == org_id  # Ensure user can only update permits in their org
+            )
+            
+            # Add optimistic concurrency check if version provided
+            if if_version is not None:
+                query = query.filter(Permit.version == if_version)
+            
+            permit = query.first()
+            if not permit:
+                if if_version is not None:
+                    # Check if permit exists but version is stale
+                    existing = session.query(Permit).filter(
+                        Permit.id == permit_id,
+                        Permit.org_id == org_id
+                    ).first()
+                    if existing:
+                        raise HTTPException(
+                            status_code=409, 
+                            detail=f"Permit has been modified by another user. Expected version {if_version}, current version {existing.version}"
+                        )
+                raise HTTPException(status_code=404, detail=f"Permit {permit_id} not found in your organization")
+            
+            # Update the field name (version will be auto-incremented by SQLAlchemy event listener)
+            permit.field_name = correct_field
+            session.commit()
+            logger.info(f"Updated permit {status_no} (org: {org_id}) field name: '{wrong_field}' → '{correct_field}'")
         
         # Record the correction for learning
         success = field_learning.record_correction(

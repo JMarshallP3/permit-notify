@@ -5,8 +5,8 @@ Updated to match RRC W-1 Search Results columns.
 
 import datetime
 import sqlalchemy as sa
-from sqlalchemy import Column, Integer, String, Date, DateTime, Index, Boolean, Numeric
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, String, Date, DateTime, Index, Boolean, Numeric, JSON, event as sqla_event
+from sqlalchemy.sql import func, insert
 from .session import Base
 
 def utcnow():
@@ -21,6 +21,9 @@ class Permit(Base):
     
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Tenant isolation - ALL queries must filter by this
+    org_id = Column(String(50), nullable=False, index=True, default='default_org')
     
     # RRC W-1 Search Results fields (matching your requirements)
     status_date = Column(Date, nullable=True, index=True)  # Status Date (MM-DD-YYYY format)
@@ -57,19 +60,23 @@ class Permit(Base):
     w1_text_snippet = sa.Column(sa.Text)  # W-1 Text Snippet
     w1_last_enriched_at = sa.Column(sa.DateTime(timezone=True))  # W-1 Last Enriched At
     
+    # Optimistic concurrency control
+    version = Column(Integer, nullable=False, default=1)
+    
     # Metadata (moved to end)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)  # Moved to last
     
-    # Indexes for common queries
+    # Indexes for common queries (all include org_id for tenant isolation)
     __table_args__ = (
-        Index('idx_permit_status_no', 'status_no'),
-        Index('idx_permit_api_no', 'api_no'),
-        Index('idx_permit_operator_name', 'operator_name'),
-        Index('idx_permit_county', 'county'),
-        Index('idx_permit_district', 'district'),
-        Index('idx_permit_status_date', 'status_date'),
-        Index('idx_permit_created', 'created_at'),
+        Index('idx_permit_org_status_no', 'org_id', 'status_no'),
+        Index('idx_permit_org_api_no', 'org_id', 'api_no'),
+        Index('idx_permit_org_operator', 'org_id', 'operator_name'),
+        Index('idx_permit_org_county', 'org_id', 'county'),
+        Index('idx_permit_org_district', 'org_id', 'district'),
+        Index('idx_permit_org_status_date', 'org_id', 'status_date'),
+        Index('idx_permit_org_created', 'org_id', 'created_at'),
+        Index('idx_permit_org_updated', 'org_id', 'updated_at'),
     )
     
     def to_dict(self):
@@ -118,4 +125,61 @@ class Permit(Base):
         }
     
     def __repr__(self):
-        return f"<Permit(id={self.id}, status_no='{self.status_no}', operator='{self.operator_name}')>"
+        return f"<Permit(id={self.id}, org_id='{self.org_id}', status_no='{self.status_no}', operator='{self.operator_name}')>"
+
+
+class Event(Base):
+    """Event sourcing table for tracking all changes to permits."""
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(32), nullable=False)              # e.g., "created", "updated"
+    entity = Column(String(32), nullable=False)            # e.g., "permit"
+    entity_id = Column(Integer, nullable=False)            # points to permits.id
+    org_id = Column(String(50), nullable=False, index=True)  # tenant isolation
+    payload = Column(JSON, nullable=True)                  # optional; lightweight payload
+    ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index('idx_events_org_entity', 'org_id', 'entity', 'entity_id'),
+        Index('idx_events_org_ts', 'org_id', 'ts'),
+    )
+
+    def __repr__(self):
+        return f"<Event(id={self.id}, org_id='{self.org_id}', type='{self.type}', entity='{self.entity}', entity_id={self.entity_id})>"
+
+
+# --- Auto-increment version on any update ---
+@sqla_event.listens_for(Permit, "before_update")
+def _bump_version(mapper, connection, target):
+    try:
+        target.version = (target.version or 1) + 1
+    except Exception:
+        target.version = 1
+
+
+# --- Write Event rows after insert/update (works even if other processes modify via ORM) ---
+@sqla_event.listens_for(Permit, "after_insert")
+def _emit_created_event(mapper, connection, target):
+    connection.execute(
+        insert(Event.__table__).values(
+            type="created",
+            entity="permit",
+            entity_id=target.id,
+            org_id=target.org_id,
+            payload={"id": target.id, "status_no": target.status_no},
+        )
+    )
+
+
+@sqla_event.listens_for(Permit, "after_update")
+def _emit_updated_event(mapper, connection, target):
+    connection.execute(
+        insert(Event.__table__).values(
+            type="updated",
+            entity="permit",
+            entity_id=target.id,
+            org_id=target.org_id,
+            payload={"id": target.id, "version": target.version, "status_no": target.status_no},
+        )
+    )

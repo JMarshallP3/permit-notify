@@ -3719,6 +3719,21 @@ class EnhancedDashboard extends PermitDashboard {
         this.showSafeMessage(message, type);
     }
 
+    // Real-time store integration
+    async refreshFromStore() {
+        try {
+            if (window.PermitStore) {
+                const permits = await window.PermitStore.getAllPermits();
+                // Update the permits array and re-render
+                this.permits = permits || [];
+                this.applyFilters(); // This will re-render the permit cards
+                console.log(`🔄 Dashboard refreshed with ${this.permits.length} permits from store`);
+            }
+        } catch (error) {
+            console.error('Error refreshing from store:', error);
+        }
+    }
+
 
     generateSavedMappingsContent() {
         const mappings = Object.entries(this.reservoirMapping);

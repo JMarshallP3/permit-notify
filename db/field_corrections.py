@@ -13,6 +13,9 @@ class FieldCorrection(Base):
     
     id = Column(Integer, primary_key=True)
     
+    # Tenant isolation
+    org_id = Column(String(50), nullable=False, index=True, default='default_org')
+    
     # Original permit info
     permit_id = Column(Integer, nullable=False)
     status_no = Column(String(50), nullable=False)
