@@ -3007,10 +3007,14 @@ class PermitDashboard {
 // Mobile-specific enhancements
 class MobileEnhancements {
     constructor() {
-        this.isMobile = window.innerWidth <= 768;
-        this.touchStartY = 0;
-        this.touchEndY = 0;
-        this.init();
+        try {
+            this.isMobile = window.innerWidth <= 768;
+            this.touchStartY = 0;
+            this.touchEndY = 0;
+            this.init();
+        } catch (error) {
+            console.error('MobileEnhancements initialization error:', error);
+        }
     }
 
     init() {
@@ -3234,8 +3238,32 @@ class EnhancedDashboard extends PermitDashboard {
     constructor() {
         super();
         this.darkMode = localStorage.getItem('darkMode') === 'true';
+        this.syncInterval = null;
         this.initDarkMode();
         this.initDataSync();
+        
+        // Add cleanup on page unload for iOS
+        window.addEventListener('beforeunload', () => {
+            this.cleanup();
+        });
+        
+        // Add cleanup on page hide (iOS Safari)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.cleanup();
+            }
+        });
+    }
+    
+    cleanup() {
+        try {
+            if (this.syncInterval) {
+                clearInterval(this.syncInterval);
+                this.syncInterval = null;
+            }
+        } catch (error) {
+            console.log('Cleanup error (safe to ignore):', error);
+        }
     }
 
     // Dark Mode Toggle
@@ -3270,17 +3298,30 @@ class EnhancedDashboard extends PermitDashboard {
 
     // Data Sync between Desktop and Mobile
     initDataSync() {
+        // Clear any existing interval first
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval);
+        }
+        
         // Sync data every 30 seconds when app is active
         this.syncInterval = setInterval(() => {
-            if (!document.hidden) {
-                this.syncData();
+            try {
+                if (!document.hidden) {
+                    this.syncData();
+                }
+            } catch (error) {
+                console.error('Sync error:', error);
             }
         }, 30000);
 
         // Sync when app becomes visible
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                this.syncData();
+            try {
+                if (!document.hidden) {
+                    this.syncData();
+                }
+            } catch (error) {
+                console.error('Visibility sync error:', error);
             }
         });
     }
@@ -3629,14 +3670,53 @@ class EnhancedDashboard extends PermitDashboard {
         this.showMobileToast(`🆕 "${fieldName}" added for review`, 'success');
     }
 
+    // Safe message display for iOS compatibility
+    showSafeMessage(message, type = 'info') {
+        try {
+            if (window.mobileEnhancements && window.mobileEnhancements.showMobileToast) {
+                window.mobileEnhancements.showMobileToast(message, type);
+            } else {
+                // Create a safer toast message
+                const toast = document.createElement('div');
+                const bgColor = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#3b82f6';
+                
+                // Use individual style properties instead of cssText for iOS compatibility
+                toast.style.position = 'fixed';
+                toast.style.top = '1rem';
+                toast.style.right = '1rem';
+                toast.style.background = bgColor;
+                toast.style.color = 'white';
+                toast.style.padding = '12px 20px';
+                toast.style.borderRadius = '8px';
+                toast.style.zIndex = '1000';
+                toast.style.fontWeight = '500';
+                toast.style.maxWidth = '300px';
+                toast.style.wordWrap = 'break-word';
+                
+                toast.textContent = message;
+                document.body.appendChild(toast);
+                
+                // Safe removal with timeout
+                setTimeout(() => {
+                    try {
+                        if (toast && toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                    } catch (e) {
+                        console.log('Toast removal error (safe to ignore):', e);
+                    }
+                }, 3000);
+            }
+        } catch (error) {
+            console.error('Message display error:', error);
+            // Ultimate fallback
+            console.log(message);
+        }
+    }
+
     // Mobile toast message (use the one from MobileEnhancements if available)
     showMobileToast(message, type = 'info') {
-        if (window.mobileEnhancements && window.mobileEnhancements.showMobileToast) {
-            window.mobileEnhancements.showMobileToast(message, type);
-        } else {
-            // Fallback to simple alert
-            alert(message);
-        }
+        this.showSafeMessage(message, type);
     }
 
 
