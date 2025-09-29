@@ -833,7 +833,7 @@ class PermitDashboard {
         console.log('Updated review queue:', this.reviewQueue);
         
         // Save updated review queue
-        localStorage.setItem('reviewQueue', JSON.stringify(this.reviewQueue));
+        localStorage.setItem('reservoirReviewQueue', JSON.stringify(this.reviewQueue));
         
         // Update display
         this.updateReviewQueueDisplay();
