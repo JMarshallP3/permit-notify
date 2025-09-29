@@ -192,9 +192,33 @@ class PermitDashboard {
     
     isPermitFromToday(permit) {
         if (!permit.status_date) return false;
-        const today = new Date().toDateString();
-        const permitDate = new Date(permit.status_date).toDateString();
-        return permitDate === today;
+        
+        // Handle different date formats from API
+        let permitDate;
+        const dateStr = permit.status_date;
+        
+        // Convert MM-DD-YYYY to ISO format (YYYY-MM-DD) for reliable parsing
+        if (dateStr.includes('-') && dateStr.length === 10) {
+            const parts = dateStr.split('-');
+            if (parts.length === 3 && parts[0].length === 2) {
+                // Assume MM-DD-YYYY format
+                const [month, day, year] = parts;
+                permitDate = new Date(`${year}-${month}-${day}`);
+            } else {
+                permitDate = new Date(dateStr);
+            }
+        } else {
+            permitDate = new Date(dateStr);
+        }
+        
+        const today = new Date();
+        
+        // Compare dates by year, month, and day (ignore time)
+        return (
+            permitDate.getFullYear() === today.getFullYear() &&
+            permitDate.getMonth() === today.getMonth() &&
+            permitDate.getDate() === today.getDate()
+        );
     }
     
     sortPermits() {
@@ -2141,11 +2165,7 @@ class PermitDashboard {
         const activePermits = this.permits.filter(p => !this.dismissedPermits.has(p.status_no));
         const visiblePermits = activePermits.length; // Only count non-dismissed permits
         
-        const todayPermits = activePermits.filter(p => {
-            const today = new Date().toDateString();
-            const permitDate = new Date(p.status_date || 0).toDateString();
-            return permitDate === today;
-        }).length;
+        const todayPermits = activePermits.filter(p => this.isPermitFromToday(p)).length;
         
         const newDrillPermits = activePermits.filter(p => 
             (p.filing_purpose || '').toLowerCase().includes('new')
@@ -3795,8 +3815,7 @@ class OptimizedDashboard extends PermitDashboard {
     }
 
     generateQuickStatsContent() {
-        const today = new Date().toDateString();
-        const todayPermits = this.permits.filter(p => new Date(p.status_date).toDateString() === today);
+        const todayPermits = this.permits.filter(p => this.isPermitFromToday(p));
         const newDrillCount = this.permits.filter(p => p.purpose_code === 'NEW DRILL').length;
         const amendmentCount = this.permits.filter(p => p.purpose_code === 'AMENDMENT').length;
 
