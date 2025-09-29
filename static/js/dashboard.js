@@ -1562,6 +1562,18 @@ class PermitDashboard {
             modal.querySelector('#correctFieldName').focus();
         }, 100);
         
+        // Add keyboard support - Enter to save, Escape to close
+        modal.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                // Trigger the save function
+                this.savePermitManualMapping(statusNo, oldFieldName, permitUrl);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                modal.remove();
+            }
+        });
+        
         // Close on outside click
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
