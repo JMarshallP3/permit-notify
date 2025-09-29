@@ -713,6 +713,16 @@ body {
 
 /* ===== COMPREHENSIVE MOBILE RESPONSIVE DESIGN ===== */
 
+/* Desktop: Hide mobile-only elements by default */
+.mobile-only {
+  display: none !important;
+}
+
+/* Desktop: Show desktop-only elements by default */
+.desktop-only {
+  display: block !important;
+}
+
 /* iPhone and Mobile Devices */
 @media (max-width: 768px) {
   /* Mobile viewport and safe area support */
@@ -1002,12 +1012,12 @@ body {
     overflow-y: auto;
   }
 
-  /* Hide desktop-only elements */
+  /* Hide desktop-only elements on mobile */
   .desktop-only {
     display: none !important;
   }
 
-  /* Show mobile-only elements */
+  /* Show mobile-only elements on mobile */
   .mobile-only {
     display: block !important;
   }
