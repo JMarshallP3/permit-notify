@@ -309,16 +309,16 @@ class PermitDashboard {
                 
                 <div class="permit-card-actions">
                     ${permit.detail_url ? `
-                        <a href="${permit.detail_url}" target="_blank" class="btn-open-permit">
-                            📄 Open Permit
+                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline">
+                            📄 View Details
                         </a>
                     ` : `
-                        <button class="btn-open-permit" disabled style="opacity: 0.5;">
+                        <button class="btn btn-sm btn-outline" disabled style="opacity: 0.5;">
                             📄 No URL Available
                         </button>
                     `}
-                    <button class="btn-dismiss" data-permit-id="${permit.status_no}">
-                        Dismiss
+                    <button class="btn btn-sm btn-outline" data-permit-id="${permit.status_no}" onclick="window.dashboard.dismissPermit('${permit.status_no}')">
+                        ✕ Dismiss
                     </button>
                 </div>
             </div>
@@ -2140,8 +2140,9 @@ class PermitDashboard {
     }
     
     async openReservoirTrends(specificReservoir = null) {
-        // Create the modal
-        const modal = document.createElement('div');
+        try {
+            // Create the modal
+            const modal = document.createElement('div');
         modal.className = 'trends-modal';
         modal.style.cssText = `
             position: fixed; 
@@ -2256,6 +2257,11 @@ class PermitDashboard {
                 modal.remove();
             }
         });
+        
+        } catch (error) {
+            console.error('Error opening reservoir trends:', error);
+            this.showSafeMessage('Error loading reservoir trends: ' + error.message, 'error');
+        }
     }
     
     async initializeReservoirChart(specificReservoir = null) {
@@ -3446,19 +3452,29 @@ class OptimizedDashboard extends PermitDashboard {
         this.showMobileToast('📤 Export started', 'info');
     }
 
-    // Mobile-specific functions
+    // Modal functions for desktop and mobile
     showTopReservoirs() {
-        // Create and show top reservoirs modal
-        const modal = this.createModal('Top Reservoirs', this.generateTopReservoirsContent());
-        document.body.appendChild(modal);
-        modal.style.display = 'flex';
+        try {
+            // Create and show top reservoirs modal
+            const modal = this.createModal('Top Reservoirs', this.generateTopReservoirsContent());
+            document.body.appendChild(modal);
+            modal.style.display = 'flex';
+        } catch (error) {
+            console.error('Error showing top reservoirs:', error);
+            this.showSafeMessage('Error loading top reservoirs', 'error');
+        }
     }
 
     showQuickStats() {
-        // Create and show quick stats modal
-        const modal = this.createModal('Quick Stats', this.generateQuickStatsContent());
-        document.body.appendChild(modal);
-        modal.style.display = 'flex';
+        try {
+            // Create and show quick stats modal
+            const modal = this.createModal('Quick Stats', this.generateQuickStatsContent());
+            document.body.appendChild(modal);
+            modal.style.display = 'flex';
+        } catch (error) {
+            console.error('Error showing quick stats:', error);
+            this.showSafeMessage('Error loading quick stats', 'error');
+        }
     }
 
     generateTopReservoirsContent() {

@@ -194,6 +194,22 @@
                                     🔄 Refresh Data
                                 </button>
                                 
+                                <button onclick="window.dashboard.openReservoirManager()" class="btn btn-accent">
+                                    ⚙️ Reservoirs
+                                </button>
+                                
+                                <button onclick="window.dashboard.showTopReservoirs()" class="btn btn-secondary">
+                                    📊 Top Reservoirs
+                                </button>
+                                
+                                <button onclick="window.dashboard.showQuickStats()" class="btn btn-info">
+                                    📈 Quick Stats
+                                </button>
+                                
+                                <a href="/api/v1/permits/export" class="btn btn-secondary">
+                                    📤 Export CSV
+                                </a>
+                                
                                 <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                                     <input type="checkbox" id="autoRefreshToggle" checked>
                                     <span>Auto-refresh (1 min)</span>
@@ -208,10 +224,6 @@
                                     <input type="checkbox" id="todayOnlyToggle">
                                     <span>📅 Today only</span>
                                 </label>
-                                
-                                <a href="/api/v1/permits/export" class="btn btn-secondary">
-                                    📊 Export CSV
-                                </a>
                             </div>
                         </div>
                     </div>
@@ -270,6 +282,12 @@
                                 <div style="color: var(--text-secondary); text-align: center; padding: 1rem;">
                                     Loading...
                                 </div>
+                            </div>
+                            <div style="margin-top: 1rem; text-align: center;">
+                                <button onclick="window.dashboard.openReservoirTrends()" 
+                                        style="padding: 0.5rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem;">
+                                    📈 View All Trends
+                                </button>
                             </div>
                         </div>
                     </div>
