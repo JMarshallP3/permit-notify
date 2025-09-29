@@ -3059,7 +3059,10 @@ class OptimizedDashboard extends PermitDashboard {
     
     // Cleanup management
     initCleanup() {
-        this.cleanupTasks = [];
+        // Initialize cleanup tasks array first
+        if (!this.cleanupTasks) {
+            this.cleanupTasks = [];
+        }
         
         // Page unload cleanup
         const cleanup = () => this.destroy();
@@ -3075,6 +3078,9 @@ class OptimizedDashboard extends PermitDashboard {
     }
     
     addCleanupTask(task) {
+        if (!this.cleanupTasks) {
+            this.cleanupTasks = [];
+        }
         if (typeof task === 'function') {
             this.cleanupTasks.push(task);
         }
@@ -3575,7 +3581,7 @@ class OptimizedDashboard extends PermitDashboard {
                 <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
                     <div style="font-weight: 600; font-size: 0.875rem;">🆕 New Reservoir Detected</div>
                     <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">${permit.field_name}</div>
-                    <button onclick="window.dashboard.handleNewReservoir('${permit.field_name.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                    <button onclick="if(window.dashboard && window.dashboard.handleNewReservoir) window.dashboard.handleNewReservoir('${permit.field_name.replace(/'/g, "\\'")}', '${permit.status_no}')" 
                             style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; margin-top: 0.5rem; cursor: pointer;">
                         ⚙️ Manage Reservoir
                     </button>

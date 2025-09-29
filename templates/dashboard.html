@@ -194,17 +194,20 @@
                                     🔄 Refresh Data
                                 </button>
                                 
-                                <button onclick="window.dashboard.openReservoirManager()" class="btn btn-accent">
-                                    ⚙️ Reservoirs
-                                </button>
-                                
-                                <button onclick="window.dashboard.showTopReservoirs()" class="btn btn-secondary">
-                                    📊 Top Reservoirs
-                                </button>
-                                
-                                <button onclick="window.dashboard.showQuickStats()" class="btn btn-info">
-                                    📈 Quick Stats
-                                </button>
+                                <!-- Mobile-only buttons -->
+                                <div class="mobile-only" style="display: flex; flex-direction: column; gap: 1rem;">
+                                    <button onclick="if(window.dashboard && window.dashboard.openReservoirManager) window.dashboard.openReservoirManager()" class="btn btn-accent">
+                                        ⚙️ Reservoirs
+                                    </button>
+                                    
+                                    <button onclick="if(window.dashboard && window.dashboard.showTopReservoirs) window.dashboard.showTopReservoirs()" class="btn btn-secondary">
+                                        📊 Top Reservoirs
+                                    </button>
+                                    
+                                    <button onclick="if(window.dashboard && window.dashboard.showQuickStats) window.dashboard.showQuickStats()" class="btn btn-info">
+                                        📈 Quick Stats
+                                    </button>
+                                </div>
                                 
                                 <a href="/api/v1/permits/export" class="btn btn-secondary">
                                     📤 Export CSV
@@ -284,7 +287,7 @@
                                 </div>
                             </div>
                             <div style="margin-top: 1rem; text-align: center;">
-                                <button onclick="window.dashboard.openReservoirTrends()" 
+                                <button onclick="if(window.dashboard && window.dashboard.openReservoirTrends) window.dashboard.openReservoirTrends()" 
                                         style="padding: 0.5rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem;">
                                     📈 View All Trends
                                 </button>
@@ -300,7 +303,7 @@
                         </div>
                         <div class="card-content">
                             <div style="text-align: center;">
-                                <button onclick="window.dashboard.openReservoirManager()" 
+                                <button onclick="if(window.dashboard && window.dashboard.openReservoirManager) window.dashboard.openReservoirManager()" 
                                         style="padding: 0.75rem 1.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; font-weight: 600;">
                                     🔧 Manage Reservoirs
                                 </button>
