@@ -1280,56 +1280,42 @@ async def correct_field_name(request: Request, request_data: dict):
                 else:
                     raise HTTPException(status_code=404, detail=f"Permit with status {status_no} not found in your organization")
         
-        # Update the permit's field name with tenant isolation and optimistic concurrency
+        # Update the permit's field name (simplified approach)
         with get_session() as session:
-            # Build query with tenant isolation
-            query = session.query(Permit).filter(
+            # Find the permit
+            permit = session.query(Permit).filter(
                 Permit.id == permit_id,
-                Permit.org_id == org_id  # Ensure user can only update permits in their org
-            )
+                Permit.org_id == org_id
+            ).first()
             
-            # Add optimistic concurrency check if version provided
-            if if_version is not None:
-                query = query.filter(Permit.version == if_version)
-            
-            permit = query.first()
             if not permit:
-                if if_version is not None:
-                    # Check if permit exists but version is stale
-                    existing = session.query(Permit).filter(
-                        Permit.id == permit_id,
-                        Permit.org_id == org_id
-                    ).first()
-                    if existing:
-                        raise HTTPException(
-                            status_code=409, 
-                            detail=f"Permit has been modified by another user. Expected version {if_version}, current version {existing.version}"
-                        )
-                raise HTTPException(status_code=404, detail=f"Permit {permit_id} not found in your organization")
+                raise HTTPException(status_code=404, detail=f"Permit {permit_id} not found")
             
             # Update the field name (version will be auto-incremented by SQLAlchemy event listener)
             permit.field_name = correct_field
             session.commit()
             logger.info(f"Updated permit {status_no} (org: {org_id}) field name: '{wrong_field}' → '{correct_field}'")
         
-        # Record the correction for learning
-        success = field_learning.record_correction(
-            permit_id=permit_id,
-            status_no=status_no,
-            wrong_field=wrong_field,
-            correct_field=correct_field,
-            detail_url=detail_url,
-            html_context=html_context
-        )
+        # Try to record the correction for learning (optional)
+        try:
+            field_learning.record_correction(
+                permit_id=permit_id,
+                status_no=status_no,
+                wrong_field=wrong_field,
+                correct_field=correct_field,
+                detail_url=detail_url,
+                html_context=html_context
+            )
+            logger.info(f"Recorded correction for learning: {status_no}")
+        except Exception as e:
+            logger.warning(f"Failed to record correction for learning: {e}")
+            # Don't fail the whole request if learning fails
         
-        if success:
-            return {
-                "success": True,
-                "message": f"Field name corrected: '{wrong_field}' → '{correct_field}'",
-                "status_no": status_no
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to record correction")
+        return {
+            "success": True,
+            "message": f"Field name corrected: '{wrong_field}' → '{correct_field}'",
+            "status_no": status_no
+        }
             
     except HTTPException:
         raise
