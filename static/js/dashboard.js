@@ -1311,22 +1311,43 @@ class PermitDashboard {
         const modal = document.querySelector('.fixed');
         if (modal) modal.remove();
         
-        // Refresh the saved mappings tab
+        // Refresh the saved mappings tab if Reservoir Manager is still open
         setTimeout(() => {
-            document.body.removeChild(successMsg);
-            this.switchReservoirTab('saved');
+            if (successMsg && successMsg.parentNode) {
+                document.body.removeChild(successMsg);
+            }
+            // Only switch tabs if the Reservoir Manager modal is still open
+            const reservoirModal = document.querySelector('.reservoir-manager-modal');
+            if (reservoirModal) {
+                this.switchReservoirTab('saved');
+            }
         }, 2000);
     }
     
     switchReservoirTab(tabName) {
+        // Safety check: ensure we're in the Reservoir Manager modal
+        const reservoirModal = document.querySelector('.reservoir-manager-modal');
+        if (!reservoirModal) {
+            console.log('Reservoir Manager modal not found, skipping tab switch');
+            return;
+        }
+        
         // Update tab buttons
         document.querySelectorAll('.reservoir-tab').forEach(tab => {
             tab.classList.remove('active');
         });
-        document.getElementById(`${tabName}Tab`).classList.add('active');
+        
+        const tabElement = document.getElementById(`${tabName}Tab`);
+        if (tabElement) {
+            tabElement.classList.add('active');
+        }
         
         // Load content for the selected tab
         const contentDiv = document.getElementById('reservoirTabContent');
+        if (!contentDiv) {
+            console.log('Reservoir tab content div not found');
+            return;
+        }
         
         switch(tabName) {
             case 'saved':
