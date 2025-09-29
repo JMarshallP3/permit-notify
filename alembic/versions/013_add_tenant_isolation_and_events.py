@@ -35,14 +35,35 @@ def upgrade():
     op.create_index('idx_permit_org_created', 'permits', ['org_id', 'created_at'])
     op.create_index('idx_permit_org_updated', 'permits', ['org_id', 'updated_at'])
     
-    # Drop old indexes (they'll be replaced by tenant-aware ones)
-    op.drop_index('idx_permit_status_no', table_name='permits')
-    op.drop_index('idx_permit_api_no', table_name='permits')
-    op.drop_index('idx_permit_operator_name', table_name='permits')
-    op.drop_index('idx_permit_county', table_name='permits')
-    op.drop_index('idx_permit_district', table_name='permits')
-    op.drop_index('idx_permit_status_date', table_name='permits')
-    op.drop_index('idx_permit_created', table_name='permits')
+    # Drop old indexes (they'll be replaced by tenant-aware ones) - safely handle missing indexes
+    try:
+        op.drop_index('idx_permit_status_no', table_name='permits')
+    except Exception:
+        pass  # Index might not exist
+    try:
+        op.drop_index('idx_permit_api_no', table_name='permits')
+    except Exception:
+        pass
+    try:
+        op.drop_index('idx_permit_operator_name', table_name='permits')
+    except Exception:
+        pass
+    try:
+        op.drop_index('idx_permit_county', table_name='permits')
+    except Exception:
+        pass
+    try:
+        op.drop_index('idx_permit_district', table_name='permits')
+    except Exception:
+        pass
+    try:
+        op.drop_index('idx_permit_status_date', table_name='permits')
+    except Exception:
+        pass
+    try:
+        op.drop_index('idx_permit_created', table_name='permits')
+    except Exception:
+        pass
     
     # Create events table
     op.create_table('events',
@@ -94,14 +115,35 @@ def downgrade():
     except Exception:
         pass
     
-    # Restore old permit indexes
-    op.create_index('idx_permit_created', 'permits', ['created_at'])
-    op.create_index('idx_permit_status_date', 'permits', ['status_date'])
-    op.create_index('idx_permit_district', 'permits', ['district'])
-    op.create_index('idx_permit_county', 'permits', ['county'])
-    op.create_index('idx_permit_operator_name', 'permits', ['operator_name'])
-    op.create_index('idx_permit_api_no', 'permits', ['api_no'])
-    op.create_index('idx_permit_status_no', 'permits', ['status_no'])
+    # Restore old permit indexes - safely handle existing indexes
+    try:
+        op.create_index('idx_permit_created', 'permits', ['created_at'])
+    except Exception:
+        pass
+    try:
+        op.create_index('idx_permit_status_date', 'permits', ['status_date'])
+    except Exception:
+        pass
+    try:
+        op.create_index('idx_permit_district', 'permits', ['district'])
+    except Exception:
+        pass
+    try:
+        op.create_index('idx_permit_county', 'permits', ['county'])
+    except Exception:
+        pass
+    try:
+        op.create_index('idx_permit_operator_name', 'permits', ['operator_name'])
+    except Exception:
+        pass
+    try:
+        op.create_index('idx_permit_api_no', 'permits', ['api_no'])
+    except Exception:
+        pass
+    try:
+        op.create_index('idx_permit_status_no', 'permits', ['status_no'])
+    except Exception:
+        pass
     
     # Drop new tenant-aware indexes
     op.drop_index('idx_permit_org_updated', table_name='permits')
