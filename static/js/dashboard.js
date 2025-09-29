@@ -13,7 +13,7 @@ class PermitDashboard {
         this.sortOrder = 'desc';
         this.lastUpdate = null;
         this.autoRefresh = true;
-        this.refreshInterval = 120000; // 2 minutes (reduced frequency for better performance)
+        this.refreshInterval = 300000; // 5 minutes (further reduced for better performance)
         this.dismissedPermits = new Set(); // Track dismissed permits
         this.showDismissed = false; // Show dismissed permits toggle
         this.todayOnly = false; // Show today only toggle
@@ -122,7 +122,7 @@ class PermitDashboard {
         try {
             this.showLoading(true);
             
-            const response = await fetch('/api/v1/permits?limit=50');
+            const response = await fetch('/api/v1/permits?limit=25');
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
@@ -3026,7 +3026,8 @@ class OptimizedDashboard extends PermitDashboard {
         
         // Initialize features
         this.initMobileFeatures();
-        this.initDataSync();
+        // Temporarily disable WebSocket for performance testing
+        // this.initDataSync();
         this.initCleanup();
     }
 
