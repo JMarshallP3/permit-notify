@@ -185,10 +185,8 @@ def save_permits_to_database(permits: List[Dict[str, Any]]) -> int:
                 total_depth=total_depth,
                 stacked_lateral_parent_well_dp=permit_data.get('stacked_lateral_parent_well_dp'),
                 current_queue=permit_data.get('current_queue'),
-                # Legacy fields for backward compatibility
-                submission_date=status_date,
                 # Detail URL for enrichment
-                detail_url=permit_data.get('detail_href')
+                detail_url=permit_data.get('detail_url')
             )
             
             session.add(permit)
