@@ -436,8 +436,7 @@ async def get_permits_for_trends(
         
         with get_session() as session:
             permits = session.query(Permit).order_by(
-                Permit.status_date.desc(),
-                Permit.created_at.desc()
+                Permit.status_no.asc()
             ).limit(limit).all()
             
             permit_data = [permit.to_dict() for permit in permits]

@@ -300,8 +300,7 @@ def get_recent_permits(limit: int = 50, days_back: int = 30) -> List[Dict[str, A
         permits = session.query(Permit).filter(
             Permit.status_date >= cutoff_date
         ).order_by(
-            Permit.status_date.desc(),
-            Permit.created_at.desc()
+            Permit.status_no.asc()
         ).limit(limit).all()
         
         logger.debug(f"Retrieved {len(permits)} permits from last {days_back} days")
@@ -358,7 +357,7 @@ def search_permits(
         if filters:
             query = query.filter(and_(*filters))
         
-        permits = query.order_by(Permit.created_at.desc()).limit(limit).all()
+        permits = query.order_by(Permit.status_no.asc()).limit(limit).all()
         
         logger.debug(f"Search returned {len(permits)} permits")
         return [permit.to_dict() for permit in permits]
