@@ -1324,6 +1324,188 @@ class PermitDashboard {
         }, 2000);
     }
     
+    openManualMappingForPermit(permit) {
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1001;';
+        
+        // Pre-populate with permit data
+        const currentFieldName = permit.currentFieldName || permit.field_name || '';
+        const permitUrl = permit.detail_url || '';
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 700px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
+                <div style="margin-bottom: 1.5rem;">
+                    <h2 style="margin: 0 0 0.5rem 0; font-size: 1.5rem; font-weight: 600; color: var(--primary-color);">
+                        ➕ Manual Mapping for ${permit.lease_name || 'Permit'}
+                    </h2>
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">
+                        Status: ${permit.status_no} • Copy the correct field name from RRC records and define the reservoir.
+                    </p>
+                    ${permitUrl ? `
+                        <div style="margin-top: 0.75rem;">
+                            <a href="${permitUrl}" target="_blank" 
+                               style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
+                                📄 Open RRC Permit Details
+                            </a>
+                        </div>
+                    ` : ''}
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-primary);">
+                        Current Field Name (from permit):
+                    </label>
+                    <div style="padding: 0.75rem; background: #f3f4f6; border: 1px solid var(--border-color); border-radius: 0.5rem; font-family: monospace; font-size: 0.875rem; color: #6b7280;">
+                        ${currentFieldName}
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-primary);">
+                        Correct Field Name (copy from RRC records):
+                    </label>
+                    <textarea id="correctFieldName" placeholder="Copy and paste the exact field name from RRC permit details..." 
+                              style="width: 100%; height: 80px; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; font-family: monospace; font-size: 0.875rem; resize: vertical;"></textarea>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                        Example: "PAN PETRO (CLEVELAND)" or "SPRABERRY (TREND AREA)"
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-primary);">
+                        Correct Reservoir Name:
+                    </label>
+                    <input type="text" id="correctReservoirName" placeholder="Enter the geological reservoir name..." 
+                           style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; font-size: 0.875rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                        Example: "CLEVELAND", "SPRABERRY", "EAGLE FORD", etc.
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button onclick="this.closest('.fixed').remove()" 
+                            style="padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 0.5rem; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button onclick="window.dashboard.savePermitManualMapping('${permit.status_no}', '${currentFieldName.replace(/'/g, "\\'")}', '${permitUrl.replace(/'/g, "\\'")}')" 
+                            style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">
+                        💾 Save & Update Database
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Focus the correct field name input
+        setTimeout(() => {
+            modal.querySelector('#correctFieldName').focus();
+        }, 100);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+    
+    async savePermitManualMapping(statusNo, oldFieldName, permitUrl) {
+        const correctFieldName = document.getElementById('correctFieldName').value.trim();
+        const correctReservoir = document.getElementById('correctReservoirName').value.trim();
+        
+        if (!correctFieldName || !correctReservoir) {
+            alert('Please fill in both the correct field name and reservoir name.');
+            return;
+        }
+        
+        try {
+            // 1. Save to local mappings
+            this.addToSavedMappings(correctFieldName, correctReservoir);
+            
+            // 2. Update the specific permit in database
+            const response = await fetch('/api/v1/field-corrections/correct', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    status_no: statusNo,
+                    wrong_field: oldFieldName,
+                    correct_field: correctFieldName,
+                    detail_url: permitUrl,
+                    html_context: ""
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            
+            // 3. Cross-reference and update other permits with same wrong field name
+            await this.crossReferenceAndUpdatePermits(oldFieldName, correctFieldName);
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+            successMsg.textContent = `✅ Mapping saved and database updated: "${correctFieldName}" → "${correctReservoir}"`;
+            document.body.appendChild(successMsg);
+            
+            // Close modal
+            const modal = document.querySelector('.fixed');
+            if (modal) modal.remove();
+            
+            // Remove from review queue
+            this.removeSinglePermitFromReview(oldFieldName, statusNo);
+            
+            // Refresh data
+            setTimeout(() => {
+                if (successMsg && successMsg.parentNode) {
+                    document.body.removeChild(successMsg);
+                }
+                this.loadPermits(); // Refresh permits to show updated data
+                
+                // Refresh reservoir manager if open
+                const reservoirModal = document.querySelector('.reservoir-manager-modal');
+                if (reservoirModal) {
+                    this.switchReservoirTab('saved');
+                }
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Error saving manual mapping:', error);
+            alert(`Error saving mapping: ${error.message}`);
+        }
+    }
+    
+    async crossReferenceAndUpdatePermits(wrongFieldName, correctFieldName) {
+        try {
+            // Find all permits with the same wrong field name and update them
+            const response = await fetch('/api/v1/permits/bulk-update-field', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    wrong_field: wrongFieldName,
+                    correct_field: correctFieldName
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log(`Cross-reference update: ${result.updated_count} permits updated`);
+            } else {
+                console.warn('Cross-reference update failed, but manual mapping was saved');
+            }
+        } catch (error) {
+            console.warn('Cross-reference update error:', error);
+            // Don't fail the whole operation if cross-reference fails
+        }
+    }
+    
     switchReservoirTab(tabName) {
         // Safety check: ensure we're in the Reservoir Manager modal
         const reservoirModal = document.querySelector('.reservoir-manager-modal');
@@ -1610,6 +1792,10 @@ class PermitDashboard {
                             <button onclick="window.dashboard.correctSinglePermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
                                     style="padding: 0.5rem 0.75rem; background: #f59e0b; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
                                 🎯 Correct Reservoir
+                            </button>
+                            <button onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                                    style="padding: 0.5rem 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                                ➕ Manual Mapping
                             </button>
                             <button onclick="window.dashboard.getSinglePermitSuggestion(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
                                     style="padding: 0.5rem 0.75rem; background: #8b5cf6; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
@@ -3905,7 +4091,7 @@ class OptimizedDashboard extends PermitDashboard {
                 <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
                     <div style="font-weight: 600; font-size: 0.875rem;">🆕 New Reservoir Detected</div>
                     <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">${permit.field_name}</div>
-                    <button onclick="if(window.dashboard && window.dashboard.openReservoirManager) window.dashboard.openReservoirManager()" 
+                    <button onclick="if(window.dashboard && window.dashboard.openManualMappingForPermit) window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
                             style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; margin-top: 0.5rem; cursor: pointer;">
                         ⚙️ Manage Reservoir
                     </button>

@@ -900,6 +900,52 @@ async def get_reservoir_trends_api(
         logger.error(f"Reservoir trends error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch reservoir trends")
 
+@app.post("/api/v1/permits/bulk-update-field")
+async def bulk_update_field_names(request_data: dict):
+    """
+    Bulk update all permits that have the same wrong field name.
+    Expected payload: {
+        "wrong_field": "There are additional problems with this ( 09/25/2025 04:31:20 PM )",
+        "correct_field": "PAN PETRO (CLEVELAND)"
+    }
+    """
+    try:
+        wrong_field = request_data.get("wrong_field")
+        correct_field = request_data.get("correct_field")
+        
+        if not all([wrong_field, correct_field]):
+            raise HTTPException(status_code=400, detail="wrong_field and correct_field are required")
+        
+        updated_count = 0
+        
+        with get_session() as session:
+            # Find all permits with the wrong field name
+            permits_to_update = session.query(Permit).filter(
+                Permit.field_name == wrong_field
+            ).all()
+            
+            # Update each permit
+            for permit in permits_to_update:
+                permit.field_name = correct_field
+                updated_count += 1
+            
+            session.commit()
+            logger.info(f"Bulk updated {updated_count} permits: '{wrong_field}' → '{correct_field}'")
+        
+        return {
+            "success": True,
+            "message": f"Updated {updated_count} permits with field name correction",
+            "updated_count": updated_count,
+            "wrong_field": wrong_field,
+            "correct_field": correct_field
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk field update error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update field names")
+
 @app.post("/enrich/all-missing")
 async def enrich_all_missing_permits():
     """
