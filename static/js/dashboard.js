@@ -617,8 +617,8 @@ class PermitDashboard {
                 if (typeof this.updateSavedMappingsDisplay === 'function') {
                     this.updateSavedMappingsDisplay();
                 } else {
-                    // Refresh the entire reservoir management display
-                    this.switchReservoirTab('saved');
+                    // Stay in current tab (Under Review) after accepting
+                    this.switchReservoirTab('review');
                 }
             }, 2000);
             
@@ -684,7 +684,8 @@ class PermitDashboard {
                     status_no: permit.status_no,
                     wrong_field: permit.currentFieldName,
                     correct_field: correctReservoir,
-                    detail_url: permit.detail_url
+                    detail_url: permit.detail_url,
+                    html_context: "" // Add empty html_context to satisfy API
                 })
             });
             
@@ -710,8 +711,8 @@ class PermitDashboard {
                     if (typeof this.updateSavedMappingsDisplay === 'function') {
                         this.updateSavedMappingsDisplay();
                     } else {
-                        // Refresh the entire reservoir management display
-                        this.switchReservoirTab('saved');
+                        // Stay in current tab (Under Review) after correcting
+                        this.switchReservoirTab('review');
                     }
                 }, 2000);
                 
@@ -3764,7 +3765,7 @@ class OptimizedDashboard extends PermitDashboard {
                 <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
                     <div style="font-weight: 600; font-size: 0.875rem;">🆕 New Reservoir Detected</div>
                     <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">${permit.field_name}</div>
-                    <button onclick="if(window.dashboard && window.dashboard.handleNewReservoir) window.dashboard.handleNewReservoir('${permit.field_name.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                    <button onclick="if(window.dashboard && window.dashboard.openReservoirManager) window.dashboard.openReservoirManager()" 
                             style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; margin-top: 0.5rem; cursor: pointer;">
                         ⚙️ Manage Reservoir
                     </button>
