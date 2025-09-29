@@ -78,21 +78,24 @@ class PermitDashboard {
         });
         
         // Check for elements with text content that indicates reservoir management
-        const allDivs = document.querySelectorAll('div');
-        allDivs.forEach(div => {
+        // BUT be more selective to avoid removing essential DOM elements
+        const suspiciousDivs = document.querySelectorAll('div:not(.container):not(.dashboard-grid):not(.main-content):not(.card):not(.permit-card)');
+        suspiciousDivs.forEach(div => {
             const text = div.textContent;
             if (text && (
                 text.includes('Under Review') || 
                 text.includes('Saved Mappings') ||
-                text.includes('Reservoir Management') ||
                 text.includes('B.L BUSH') ||
                 text.includes('BUSH 23') ||
                 text.includes('BIVINS')
             )) {
-                // Only remove if not inside a modal and not in sidebar
+                // Only remove if not inside a modal, not in sidebar, and not essential structure
                 if (!div.closest('.reservoir-manager-modal') && 
                     !div.closest('.sidebar') && 
-                    !div.closest('.card-title')) {
+                    !div.closest('.card-title') &&
+                    !div.closest('.container') &&
+                    !div.closest('.dashboard-grid') &&
+                    !div.closest('.main-content')) {
                     console.log('Removing div with reservoir management text:', div);
                     div.remove();
                 }
@@ -124,19 +127,21 @@ class PermitDashboard {
                             }
                         }
                         
-                        // Also check text content
+                        // Also check text content - but be very selective
                         const text = node.textContent;
                         if (text && (
-                            text.includes('Under Review') || 
-                            text.includes('Saved Mappings') ||
                             text.includes('B.L BUSH') ||
                             text.includes('BUSH 23') ||
                             text.includes('BIVINS')
-                        )) {
-                            // Only remove if not inside a modal and not in sidebar
+                        ) && text.length < 200) { // Only short text snippets, not entire page content
+                            // Only remove if not inside a modal, sidebar, or essential structure
                             if (!node.closest('.reservoir-manager-modal') && 
                                 !node.closest('.sidebar') && 
-                                !node.closest('.card-title')) {
+                                !node.closest('.card-title') &&
+                                !node.closest('.container') &&
+                                !node.closest('.dashboard-grid') &&
+                                !node.closest('.main-content') &&
+                                !node.matches('.container, .dashboard-grid, .main-content, .card, .permit-card')) {
                                 console.warn('Removing node with reservoir management text from main dashboard');
                                 node.remove();
                             }
@@ -281,7 +286,8 @@ class PermitDashboard {
             this.buildMultiSelectOptions();
             
             // Cleanup any reservoir management content that might have appeared
-            setTimeout(() => this.cleanupMainDashboard(), 100);
+            // Disabled automatic cleanup to prevent removing essential DOM elements
+            // setTimeout(() => this.cleanupMainDashboard(), 100);
             
         } catch (error) {
             console.error('Error loading permits:', error);
