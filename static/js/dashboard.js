@@ -1331,6 +1331,10 @@ class PermitDashboard {
         // Pre-populate with permit data
         const currentFieldName = permit.currentFieldName || permit.field_name || '';
         const permitUrl = permit.detail_url || '';
+        const statusNo = permit.status_no || '';
+        
+        // Construct RRC URL if not available
+        const rrcUrl = permitUrl || `https://webapps.rrc.state.tx.us/DP/publicQueryAction.do?searchType=statusNumber&statusNumber=${statusNo}`;
         
         modal.innerHTML = `
             <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 700px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
@@ -1339,16 +1343,19 @@ class PermitDashboard {
                         ➕ Manual Mapping for ${permit.lease_name || 'Permit'}
                     </h2>
                     <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">
-                        Status: ${permit.status_no} • Copy the correct field name from RRC records and define the reservoir.
+                        Status: ${statusNo} • Copy the correct field name from RRC records and define the reservoir.
                     </p>
-                    ${permitUrl ? `
-                        <div style="margin-top: 0.75rem;">
-                            <a href="${permitUrl}" target="_blank" 
-                               style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
-                                📄 Open RRC Permit Details
-                            </a>
-                        </div>
-                    ` : ''}
+                    <div style="margin-top: 0.75rem;">
+                        <a href="${rrcUrl}" target="_blank" 
+                           style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
+                            📄 Open RRC Permit Details
+                        </a>
+                        ${!permitUrl ? `
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Search for Status #${statusNo} on RRC website
+                            </div>
+                        ` : ''}
+                    </div>
                 </div>
                 
                 <div style="margin-bottom: 1.5rem;">
@@ -1503,6 +1510,85 @@ class PermitDashboard {
         } catch (error) {
             console.warn('Cross-reference update error:', error);
             // Don't fail the whole operation if cross-reference fails
+        }
+    }
+    
+    isValidReservoirName(fieldName) {
+        if (!fieldName || fieldName.length < 3) return false;
+        
+        const name = fieldName.toLowerCase();
+        
+        // Common geological formations and reservoir names
+        const validReservoirTerms = [
+            'austin chalk', 'eagle ford', 'wolfcamp', 'spraberry', 'barnett',
+            'bone spring', 'delaware', 'permian', 'woodford', 'haynesville',
+            'marcellus', 'utica', 'bakken', 'niobrara', 'cleveland', 'granite wash',
+            'atoka', 'canyon', 'strawn', 'bend', 'frio', 'jackson', 'yegua', 'wilcox',
+            'cotton valley', 'travis peak', 'hosston', 'sligo', 'james lime',
+            'cherry canyon', 'clear fork', 'palo pinto', 'devonian', 'mississippian',
+            'pennsylvanian', 'ordovician', 'cambrian', 'ellenburger', 'simpson',
+            'viola', 'hunton', 'woodford', 'chester', 'morrow', 'cisco', 'canyon',
+            'strawn', 'atoka', 'desmoinesian', 'missourian', 'virgilian', 'wolfcampian'
+        ];
+        
+        // Check if field name contains valid geological terms
+        const containsValidTerm = validReservoirTerms.some(term => name.includes(term));
+        
+        // Check for formation pattern (something in parentheses)
+        const hasFormationPattern = fieldName.includes('(') && fieldName.includes(')');
+        
+        // Exclude obvious non-reservoir patterns
+        const invalidPatterns = [
+            'additional problems', 'exactly as shown', 'commission staff',
+            'expresses no opinion', 'please pay', 'exception fee', 'revised plat',
+            'changed survey', 'allocation wells', 'drilled concurrent',
+            'recompletion', 'completion', 'interval', 'tracts shown', 'tracts listed'
+        ];
+        
+        const hasInvalidPattern = invalidPatterns.some(pattern => name.includes(pattern));
+        
+        return (containsValidTerm || hasFormationPattern) && !hasInvalidPattern;
+    }
+    
+    acceptNewReservoir(permit) {
+        try {
+            const fieldName = permit.field_name || '';
+            
+            // Extract reservoir name from field name
+            let reservoirName = fieldName;
+            
+            // If it has parentheses, extract the part in parentheses
+            if (fieldName.includes('(') && fieldName.includes(')')) {
+                const match = fieldName.match(/\(([^)]+)\)/);
+                if (match) {
+                    reservoirName = match[1].trim();
+                }
+            }
+            
+            // Clean up common suffixes
+            reservoirName = reservoirName.replace(/\s+(trend\s+area|formation|shale|chalk|sand|lime)$/i, '').trim();
+            
+            // Add to saved mappings
+            this.addToSavedMappings(fieldName, reservoirName.toUpperCase());
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+            successMsg.textContent = `✅ Accepted reservoir: "${fieldName}" → "${reservoirName.toUpperCase()}"`;
+            document.body.appendChild(successMsg);
+            
+            // Remove success message after 3 seconds
+            setTimeout(() => {
+                if (successMsg && successMsg.parentNode) {
+                    document.body.removeChild(successMsg);
+                }
+                // Refresh the permits to remove the "New Reservoir Detected" banner
+                this.loadPermits();
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Error accepting new reservoir:', error);
+            alert(`Error accepting reservoir: ${error.message}`);
         }
     }
     
@@ -2356,7 +2442,25 @@ class PermitDashboard {
     formatDate(dateStr) {
         if (!dateStr) return '-';
         try {
-            const date = new Date(dateStr);
+            // Handle MM-DD-YYYY format from API
+            let date;
+            if (dateStr.includes('-') && dateStr.length === 10) {
+                const parts = dateStr.split('-');
+                if (parts.length === 3 && parts[0].length === 2) {
+                    // Assume MM-DD-YYYY format
+                    const [month, day, year] = parts;
+                    date = new Date(`${year}-${month}-${day}`);
+                } else {
+                    date = new Date(dateStr);
+                }
+            } else {
+                date = new Date(dateStr);
+            }
+            
+            if (isNaN(date.getTime())) {
+                return dateStr; // Return original if parsing fails
+            }
+            
             return date.toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
@@ -4087,14 +4191,26 @@ class OptimizedDashboard extends PermitDashboard {
             
             const banner = document.createElement('div');
             banner.className = 'new-reservoir-banner';
+            // Check if the field name looks like a valid reservoir (contains geological terms)
+            const fieldName = permit.field_name || '';
+            const looksLikeValidReservoir = this.isValidReservoirName(fieldName);
+            
             banner.innerHTML = `
                 <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
                     <div style="font-weight: 600; font-size: 0.875rem;">🆕 New Reservoir Detected</div>
-                    <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">${permit.field_name}</div>
-                    <button onclick="if(window.dashboard && window.dashboard.openManualMappingForPermit) window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
-                            style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; margin-top: 0.5rem; cursor: pointer;">
-                        ⚙️ Manage Reservoir
-                    </button>
+                    <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">${fieldName}</div>
+                    <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+                        ${looksLikeValidReservoir ? `
+                            <button onclick="if(window.dashboard && window.dashboard.acceptNewReservoir) window.dashboard.acceptNewReservoir(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                                    style="background: #10b981; border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
+                                ✅ Accept as Correct
+                            </button>
+                        ` : ''}
+                        <button onclick="if(window.dashboard && window.dashboard.openManualMappingForPermit) window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                                style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
+                            ⚙️ Manage Reservoir
+                        </button>
+                    </div>
                 </div>
             `;
             
