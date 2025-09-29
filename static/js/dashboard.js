@@ -1222,9 +1222,14 @@ class PermitDashboard {
             return;
         }
         
+        // PERFORMANCE FIX: Limit initial display to prevent memory spike
+        const INITIAL_DISPLAY_LIMIT = 20;
+        const showAll = savedMappings.length <= INITIAL_DISPLAY_LIMIT;
+        const displayMappings = showAll ? savedMappings : savedMappings.slice(0, INITIAL_DISPLAY_LIMIT);
+        
         // Group mappings by reservoir
         const groupedMappings = {};
-        savedMappings.forEach(([fieldName, reservoir]) => {
+        displayMappings.forEach(([fieldName, reservoir]) => {
             if (!groupedMappings[reservoir]) {
                 groupedMappings[reservoir] = [];
             }
@@ -1286,7 +1291,98 @@ class PermitDashboard {
                     </div>
                 `).join('')}
             </div>
+            ${!showAll ? `
+                <div style="text-align: center; padding: 2rem; border-top: 1px solid var(--border-color); margin-top: 1rem;">
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                        Showing ${displayMappings.length} of ${savedMappings.length} mappings
+                    </p>
+                    <button onclick="window.dashboard.loadAllSavedMappings()" 
+                            style="padding: 0.75rem 1.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem;">
+                        📋 Show All ${savedMappings.length} Mappings
+                    </button>
+                </div>
+            ` : ''}
         `;
+        
+        // Store reference for "Show All" functionality
+        this._allSavedMappings = savedMappings;
+    }
+    
+    loadAllSavedMappings() {
+        const contentDiv = document.getElementById('reservoirTabContent');
+        if (contentDiv && this._allSavedMappings) {
+            // Temporarily show all mappings (user requested)
+            const savedMappings = this._allSavedMappings;
+            
+            // Group mappings by reservoir
+            const groupedMappings = {};
+            savedMappings.forEach(([fieldName, reservoir]) => {
+                if (!groupedMappings[reservoir]) {
+                    groupedMappings[reservoir] = [];
+                }
+                groupedMappings[reservoir].push(fieldName);
+            });
+            
+            // Sort reservoirs alphabetically
+            const sortedReservoirs = Object.keys(groupedMappings).sort();
+            
+            contentDiv.innerHTML = `
+                <div style="display: grid; gap: 1.5rem;">
+                    <div style="text-align: center; padding: 1rem; background: var(--warning-bg); border: 1px solid var(--warning-color); border-radius: 0.5rem; color: var(--warning-text);">
+                        ⚠️ Showing all ${savedMappings.length} mappings - this may impact performance
+                    </div>
+                    ${sortedReservoirs.map(reservoir => `
+                        <div style="border: 1px solid var(--border-color); border-radius: 0.75rem; overflow: hidden; background: var(--surface-color);">
+                            <div style="padding: 1rem; background: var(--gradient-primary); color: white;">
+                                <h3 style="margin: 0; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="reservoir-display" style="background: rgba(255,255,255,0.2); padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem;">
+                                        ${reservoir}
+                                    </span>
+                                    <span style="font-size: 0.875rem; opacity: 0.9;">
+                                        (${groupedMappings[reservoir].length} field${groupedMappings[reservoir].length !== 1 ? 's' : ''})
+                                    </span>
+                                </h3>
+                            </div>
+                            <div style="padding: 1rem;">
+                                <div style="display: grid; gap: 0.75rem;">
+                                    ${groupedMappings[reservoir].map(fieldName => `
+                                        <div style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--background-color); display: flex; justify-content: space-between; align-items: center;">
+                                            <div style="flex: 1; min-width: 0;">
+                                                <div style="font-weight: 500; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
+                                                    ${fieldName}
+                                                </div>
+                                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                                    Maps to: <strong>${reservoir}</strong>
+                                                </div>
+                                            </div>
+                                            <div style="display: flex; gap: 0.5rem; margin-left: 1rem;">
+                                                <button onclick="window.dashboard.editReservoirMapping('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
+                                                        style="padding: 0.375rem 0.75rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
+                                                    ✏️ Edit
+                                                </button>
+                                                <button onclick="window.dashboard.flagIncorrectFieldName('${fieldName.replace(/'/g, "\\'")}')" 
+                                                        style="padding: 0.375rem 0.75rem; background: #ff6b35; color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;" 
+                                                        title="Report this field name as incorrectly parsed">
+                                                    🚩 Report Incorrect
+                                                </button>
+                                                <button onclick="window.dashboard.moveToReview('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
+                                                        style="padding: 0.375rem 0.75rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
+                                                    📋 Review
+                                                </button>
+                                                <button onclick="window.dashboard.deleteReservoirMapping('${fieldName.replace(/'/g, "\\'")}')" 
+                                                        style="padding: 0.375rem 0.75rem; background: var(--error-color); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
     }
     
     loadReviewQueueContent(contentDiv) {
@@ -3852,22 +3948,7 @@ class OptimizedDashboard extends PermitDashboard {
         `;
     }
 
-    // Tab switching for reservoir management
-    switchReservoirTab(tabName) {
-        // Remove active class from all tabs and contents
-        const tabs = document.querySelectorAll('.reservoir-tab');
-        const contents = document.querySelectorAll('.tab-content');
-        
-        tabs.forEach(tab => tab.classList.remove('active'));
-        contents.forEach(content => content.classList.remove('active'));
-        
-        // Add active class to selected tab and content
-        const selectedTab = document.querySelector(`[onclick*="switchReservoirTab('${tabName}')"]`);
-        const selectedContent = document.getElementById(tabName === 'saved' ? 'savedMappings' : tabName === 'review' ? 'reviewQueue' : 'cancelledMappings');
-        
-        if (selectedTab) selectedTab.classList.add('active');
-        if (selectedContent) selectedContent.classList.add('active');
-    }
+    // Duplicate function removed - using the main switchReservoirTab function above
 
     // Helper methods for reservoir management
     acceptReservoirSuggestion(fieldName, suggestedReservoir) {
