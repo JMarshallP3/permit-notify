@@ -185,48 +185,4 @@ def _emit_updated_event(mapper, connection, target):
     )
 
 
-class FieldCorrection(Base):
-    """
-    Model to store field name corrections for machine learning and enhancement system feedback.
-    This allows the system to learn from manual corrections and improve future parsing.
-    """
-    __tablename__ = "field_corrections"
-    
-    # Primary key
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # Tenant isolation
-    org_id = Column(String(50), nullable=False, index=True, default='default_org')
-    
-    # Reference to the permit that was corrected
-    permit_id = Column(Integer, nullable=True, index=True)  # Foreign key to permits.id
-    status_no = Column(String(50), nullable=False, index=True)  # For easier lookup
-    
-    # The correction data
-    wrong_field_name = Column(String(500), nullable=False, index=True)  # What the system parsed incorrectly
-    correct_field_name = Column(String(500), nullable=False, index=True)  # What the user corrected it to
-    correct_reservoir_name = Column(String(200), nullable=True)  # The clean reservoir name
-    
-    # Context for learning
-    detail_url = Column(String(1000), nullable=True)  # URL to the RRC detail page
-    html_context = Column(String(5000), nullable=True)  # HTML snippet around the field for pattern learning
-    
-    # Learning metadata
-    confidence_score = Column(Numeric(3, 2), nullable=True)  # How confident the original parsing was (0.0-1.0)
-    correction_type = Column(String(50), nullable=True, index=True)  # 'field_name', 'reservoir_mapping', etc.
-    pattern_category = Column(String(100), nullable=True)  # 'timestamp', 'comment', 'geological', etc.
-    
-    # Tracking
-    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
-    created_by = Column(String(100), nullable=True)  # User who made the correction
-    
-    # Learning system usage
-    used_for_training = Column(Boolean, default=False, index=True)  # Has this been used to train the model?
-    training_weight = Column(Numeric(3, 2), default=1.0)  # Weight for training (higher = more important)
-    
-    def __repr__(self):
-        return f"<FieldCorrection(id={self.id}, status_no='{self.status_no}', wrong='{self.wrong_field_name[:50]}...', correct='{self.correct_field_name[:50]}...')>"
-
-
-# Index for efficient learning queries
-Index('idx_field_corrections_learning', FieldCorrection.wrong_field_name, FieldCorrection.correct_field_name, FieldCorrection.used_for_training)
+# FieldCorrection model is defined in db/field_corrections.py to avoid conflicts

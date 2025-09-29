@@ -19,8 +19,9 @@ from services.scraper.rrc_w1 import RRCW1Client, EngineRedirectToLogin
 from services.enrichment.worker import EnrichmentWorker, run_once
 from services.enrichment.detail_parser import parse_detail_page
 from services.enrichment.pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
-from services.field_learning import field_learning
-from db.models import Permit, Event, FieldCorrection
+# Removed conflicting field_learning import - using FieldCorrection model directly
+from db.models import Permit, Event
+from db.field_corrections import FieldCorrection
 from db.session import Base, engine, get_session
 from db.repo import upsert_permits, get_recent_permits, get_reservoir_trends
 from sqlalchemy import select, func
@@ -1407,12 +1408,9 @@ async def correct_field_name(request: Request, request_data: dict):
                     status_no=status_no,
                     wrong_field_name=wrong_field,
                     correct_field_name=correct_field,
-                    correct_reservoir_name=correct_reservoir,
                     detail_url=detail_url,
                     html_context=html_context or "",
-                    correction_type="field_name",
-                    pattern_category=pattern_category,
-                    created_by="manual_correction"
+                    corrected_by="manual_correction"
                 )
                 learning_session.add(correction)
                 learning_session.commit()

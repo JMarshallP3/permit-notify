@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 from lxml import html
 import re
 from db.session import get_session
-from db.models import FieldCorrection
+from db.field_corrections import FieldCorrection
 
 WS = re.compile(r"\s+")
 
