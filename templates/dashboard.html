@@ -392,17 +392,19 @@
             
             await window.PermitStore.init(orgId);
             
-            // Subscribe to store changes and refresh dashboard
-            window.PermitStore.subscribe(() => {
-                if (window.dashboard && typeof window.dashboard.refreshFromStore === 'function') {
-                    window.dashboard.refreshFromStore();
-                }
-            });
+            // Subscribe to store changes and refresh dashboard - DISABLED to prevent data conflicts
+            // The dashboard now uses direct API calls instead of IndexedDB store
+            // window.PermitStore.subscribe(() => {
+            //     if (window.dashboard && typeof window.dashboard.refreshFromStore === 'function') {
+            //         window.dashboard.refreshFromStore();
+            //     }
+            // });
             
-            // Initial render from store
-            if (window.dashboard && typeof window.dashboard.refreshFromStore === 'function') {
-                window.dashboard.refreshFromStore();
-            }
+            // Initial render from store - DISABLED to prevent overwriting fresh API data
+            // The dashboard now loads fresh data via loadPermits() instead of cached store data
+            // if (window.dashboard && typeof window.dashboard.refreshFromStore === 'function') {
+            //     window.dashboard.refreshFromStore();
+            // }
         });
     </script>
 </body>
