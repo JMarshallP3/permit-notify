@@ -408,18 +408,48 @@ def get_permits_since(
         }
 
 @app.get("/api/v1/permits")
-async def get_permits(limit: int = Query(50, ge=1, le=1000)):
-    """Get recent permits from database."""
+async def get_permits(
+    limit: int = Query(25, ge=1, le=1000),
+    days_back: int = Query(30, ge=1, le=365, description="Number of days back to look for permits")
+):
+    """Get recent permits from database (last N days)."""
     try:
-        logger.info(f"Fetching {limit} recent permits from database")
-        permits = get_recent_permits(limit)
+        logger.info(f"Fetching {limit} recent permits from last {days_back} days")
+        permits = get_recent_permits(limit, days_back)
         return {
             "permits": permits,
             "count": len(permits),
-            "limit": limit
+            "limit": limit,
+            "days_back": days_back
         }
     except Exception as e:
         logger.error(f"Database query error: {e}")
+        return {"error": str(e), "permits": []}
+
+@app.get("/api/v1/permits/trends")
+async def get_permits_for_trends(
+    limit: int = Query(1000, ge=1, le=5000, description="Maximum permits for trend analysis")
+):
+    """Get permits for trend analysis (no date filter, includes historical data)."""
+    try:
+        logger.info(f"Fetching {limit} permits for trend analysis")
+        
+        with get_session() as session:
+            permits = session.query(Permit).order_by(
+                Permit.status_date.desc(),
+                Permit.created_at.desc()
+            ).limit(limit).all()
+            
+            permit_data = [permit.to_dict() for permit in permits]
+            
+        return {
+            "permits": permit_data,
+            "count": len(permit_data),
+            "limit": limit,
+            "note": "Historical data for trend analysis"
+        }
+    except Exception as e:
+        logger.error(f"Trends database query error: {e}")
         return {"error": str(e), "permits": []}
 
 @app.get("/w1/search")

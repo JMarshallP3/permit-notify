@@ -280,23 +280,31 @@ def extract_reservoir_name(field_name: str) -> str:
     
     return field_name
 
-def get_recent_permits(limit: int = 50) -> List[Dict[str, Any]]:
+def get_recent_permits(limit: int = 50, days_back: int = 30) -> List[Dict[str, Any]]:
     """
-    Get recent permits ordered by filing date, then creation date.
+    Get recent permits from the last N days, ordered by filing date, then creation date.
     
     Args:
         limit: Maximum number of permits to return
+        days_back: Number of days back to look for permits (default: 30)
         
     Returns:
         List of permit dictionaries
     """
+    from datetime import datetime, timedelta
+    
     with get_session() as session:
-        permits = session.query(Permit).order_by(
+        # Calculate the cutoff date
+        cutoff_date = datetime.now() - timedelta(days=days_back)
+        
+        permits = session.query(Permit).filter(
+            Permit.status_date >= cutoff_date
+        ).order_by(
             Permit.status_date.desc(),
             Permit.created_at.desc()
         ).limit(limit).all()
         
-        logger.debug(f"Retrieved {len(permits)} recent permits")
+        logger.debug(f"Retrieved {len(permits)} permits from last {days_back} days")
         return [permit.to_dict() for permit in permits]
 
 def get_permit_by_number(permit_no: str) -> Dict[str, Any]:

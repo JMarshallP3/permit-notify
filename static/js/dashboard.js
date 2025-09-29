@@ -108,6 +108,16 @@ class PermitDashboard {
             this.applyFilters();
         });
         
+        // Date range selector
+        const daysBackSelect = document.getElementById('daysBackSelect');
+        if (daysBackSelect) {
+            this.daysBack = 7; // Default to 7 days
+            daysBackSelect.addEventListener('change', (e) => {
+                this.daysBack = parseInt(e.target.value);
+                this.loadPermits(); // Reload with new date range
+            });
+        }
+        
         // Multi-select dropdown toggles
         document.getElementById('operatorMultiBtn').addEventListener('click', () => {
             this.toggleMultiSelect('operatorMultiSelect');
@@ -122,7 +132,8 @@ class PermitDashboard {
         try {
             this.showLoading(true);
             
-            const response = await fetch('/api/v1/permits?limit=25');
+            const daysBack = this.daysBack || 7;
+            const response = await fetch(`/api/v1/permits?limit=25&days_back=${daysBack}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
@@ -3026,8 +3037,7 @@ class OptimizedDashboard extends PermitDashboard {
         
         // Initialize features
         this.initMobileFeatures();
-        // Temporarily disable WebSocket for performance testing
-        // this.initDataSync();
+        this.initDataSync(); // Re-enabled after fixing main performance issue
         this.initCleanup();
     }
 

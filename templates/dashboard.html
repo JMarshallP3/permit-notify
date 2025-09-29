@@ -227,6 +227,18 @@
                                     <input type="checkbox" id="todayOnlyToggle">
                                     <span>📅 Today only</span>
                                 </label>
+                                
+                                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                    <label style="font-size: 0.875rem; color: var(--text-secondary);">📅 Date Range</label>
+                                    <select id="daysBackSelect" style="padding: 0.375rem; border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--background-color); color: var(--text-color);">
+                                        <option value="1">Today only</option>
+                                        <option value="3">Last 3 days</option>
+                                        <option value="7" selected>Last 7 days</option>
+                                        <option value="14">Last 2 weeks</option>
+                                        <option value="30">Last 30 days</option>
+                                        <option value="90">Last 90 days</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </div>
