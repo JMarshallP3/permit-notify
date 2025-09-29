@@ -3004,119 +3004,142 @@ class PermitDashboard {
 }
 
 // Initialize dashboard when page loads
-// Mobile-specific enhancements
-class MobileEnhancements {
+// Consolidated Dashboard with Mobile Support (Memory Optimized)
+class OptimizedDashboard extends PermitDashboard {
     constructor() {
-        try {
-            this.isMobile = window.innerWidth <= 768;
-            this.touchStartY = 0;
-            this.touchEndY = 0;
-            this.init();
-        } catch (error) {
-            console.error('MobileEnhancements initialization error:', error);
-        }
+        super();
+        
+        // Mobile detection
+        this.isMobile = window.innerWidth <= 768;
+        
+        // Memory management
+        this.intervals = new Set();
+        this.eventListeners = new WeakMap();
+        this.isDestroyed = false;
+        
+        // Initialize features
+        this.initMobileFeatures();
+        this.initDataSync();
+        this.initCleanup();
     }
 
-    init() {
+    // Memory-optimized initialization
+    initMobileFeatures() {
         if (this.isMobile) {
             this.addTouchGestures();
             this.optimizeForMobile();
             this.handleOrientationChange();
         }
         
-        // Listen for resize events
-        window.addEventListener('resize', () => {
-            this.isMobile = window.innerWidth <= 768;
-            if (this.isMobile) {
-                this.optimizeForMobile();
-            }
+        // Throttled resize listener
+        let resizeTimeout;
+        const resizeHandler = () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                this.isMobile = window.innerWidth <= 768;
+                if (this.isMobile) {
+                    this.optimizeForMobile();
+                }
+            }, 250);
+        };
+        
+        window.addEventListener('resize', resizeHandler);
+        this.addCleanupTask(() => {
+            window.removeEventListener('resize', resizeHandler);
+            clearTimeout(resizeTimeout);
         });
     }
+    
+    // Cleanup management
+    initCleanup() {
+        this.cleanupTasks = [];
+        
+        // Page unload cleanup
+        const cleanup = () => this.destroy();
+        window.addEventListener('beforeunload', cleanup);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) this.pauseBackgroundTasks();
+            else this.resumeBackgroundTasks();
+        });
+        
+        this.addCleanupTask(() => {
+            window.removeEventListener('beforeunload', cleanup);
+        });
+    }
+    
+    addCleanupTask(task) {
+        if (typeof task === 'function') {
+            this.cleanupTasks.push(task);
+        }
+    }
+    
+    // Safe interval management
+    setManagedInterval(callback, delay) {
+        const intervalId = setInterval(callback, delay);
+        this.intervals.add(intervalId);
+        return intervalId;
+    }
+    
+    clearManagedInterval(intervalId) {
+        clearInterval(intervalId);
+        this.intervals.delete(intervalId);
+    }
 
+    // Mobile touch gestures (integrated and optimized)
     addTouchGestures() {
-        // Add pull-to-refresh functionality
+        if (!this.isMobile) return;
+        
+        // Pull-to-refresh functionality
         let startY = 0;
-        let currentY = 0;
         let pullDistance = 0;
         const threshold = 100;
 
-        document.addEventListener('touchstart', (e) => {
+        const touchStartHandler = (e) => {
             if (window.scrollY === 0) {
                 startY = e.touches[0].clientY;
             }
-        }, { passive: true });
+        };
 
-        document.addEventListener('touchmove', (e) => {
+        const touchMoveHandler = (e) => {
             if (window.scrollY === 0 && startY > 0) {
-                currentY = e.touches[0].clientY;
+                const currentY = e.touches[0].clientY;
                 pullDistance = currentY - startY;
                 
                 if (pullDistance > 0 && pullDistance < threshold * 2) {
-                    // Visual feedback for pull-to-refresh
                     document.body.style.transform = `translateY(${Math.min(pullDistance / 3, 50)}px)`;
                     document.body.style.transition = 'none';
                 }
             }
-        }, { passive: true });
+        };
 
-        document.addEventListener('touchend', () => {
+        const touchEndHandler = () => {
             if (pullDistance > threshold) {
-                // Trigger refresh
-                if (window.dashboard) {
-                    window.dashboard.refreshData();
-                    this.showMobileToast('🔄 Refreshing data...', 'info');
-                }
+                this.refreshData();
+                this.showSafeMessage('🔄 Refreshing data...', 'info');
             }
             
-            // Reset visual state
             document.body.style.transform = '';
             document.body.style.transition = 'transform 0.3s ease';
             startY = 0;
             pullDistance = 0;
-        }, { passive: true });
+        };
 
-        // Add swipe gestures for tabs
-        this.addSwipeGestures();
+        document.addEventListener('touchstart', touchStartHandler, { passive: true });
+        document.addEventListener('touchmove', touchMoveHandler, { passive: true });
+        document.addEventListener('touchend', touchEndHandler, { passive: true });
+
+        // Add cleanup
+        this.addCleanupTask(() => {
+            document.removeEventListener('touchstart', touchStartHandler);
+            document.removeEventListener('touchmove', touchMoveHandler);
+            document.removeEventListener('touchend', touchEndHandler);
+        });
     }
 
-    addSwipeGestures() {
-        const reservoirTabs = document.querySelector('.reservoir-tabs');
-        if (!reservoirTabs) return;
-
-        let touchStartX = 0;
-        let touchEndX = 0;
-
-        reservoirTabs.addEventListener('touchstart', (e) => {
-            touchStartX = e.changedTouches[0].screenX;
-        }, { passive: true });
-
-        reservoirTabs.addEventListener('touchend', (e) => {
-            touchEndX = e.changedTouches[0].screenX;
-            this.handleSwipe(touchStartX, touchEndX);
-        }, { passive: true });
-    }
-
-    handleSwipe(startX, endX) {
-        const swipeThreshold = 50;
-        const diff = startX - endX;
-
-        if (Math.abs(diff) > swipeThreshold) {
-            const tabs = document.querySelectorAll('.reservoir-tab');
-            const activeTab = document.querySelector('.reservoir-tab.active');
-            const activeIndex = Array.from(tabs).indexOf(activeTab);
-
-            if (diff > 0 && activeIndex < tabs.length - 1) {
-                // Swipe left - next tab
-                tabs[activeIndex + 1].click();
-            } else if (diff < 0 && activeIndex > 0) {
-                // Swipe right - previous tab
-                tabs[activeIndex - 1].click();
-            }
-        }
-    }
-
+    // Mobile optimization methods (integrated)
     optimizeForMobile() {
-        // Add mobile-specific classes
+        if (!this.isMobile) return;
+        
         document.body.classList.add('mobile-optimized');
         
         // Optimize button spacing
@@ -3127,53 +3150,55 @@ class MobileEnhancements {
             }
         });
 
-        // Add touch feedback to interactive elements
         this.addTouchFeedback();
-        
-        // Optimize modals for mobile
-        this.optimizeModalsForMobile();
+        this.handleOrientationChange();
     }
 
     addTouchFeedback() {
         const interactiveElements = document.querySelectorAll('.btn, .permit-card, .reservoir-tab, .stat-card');
         
         interactiveElements.forEach(element => {
-            element.addEventListener('touchstart', () => {
+            const touchStartHandler = () => {
                 element.style.transform = 'scale(0.98)';
                 element.style.transition = 'transform 0.1s ease';
-            }, { passive: true });
+            };
 
-            element.addEventListener('touchend', () => {
+            const touchEndHandler = () => {
                 setTimeout(() => {
                     element.style.transform = '';
                     element.style.transition = 'transform 0.2s ease';
                 }, 100);
-            }, { passive: true });
-        });
-    }
+            };
 
-    optimizeModalsForMobile() {
-        // Make modals slide up from bottom on mobile
-        const modals = document.querySelectorAll('.modal');
-        modals.forEach(modal => {
-            if (this.isMobile) {
-                modal.classList.add('mobile-modal');
+            element.addEventListener('touchstart', touchStartHandler, { passive: true });
+            element.addEventListener('touchend', touchEndHandler, { passive: true });
+            
+            // Store for cleanup
+            if (!this.eventListeners.has(element)) {
+                this.eventListeners.set(element, []);
             }
+            this.eventListeners.get(element).push(
+                { type: 'touchstart', handler: touchStartHandler },
+                { type: 'touchend', handler: touchEndHandler }
+            );
         });
     }
 
     handleOrientationChange() {
-        window.addEventListener('orientationchange', () => {
+        const orientationHandler = () => {
             setTimeout(() => {
-                // Recalculate layouts after orientation change
-                if (window.dashboard) {
-                    window.dashboard.updateCharts();
+                if (this.updateCharts && typeof this.updateCharts === 'function') {
+                    this.updateCharts();
                 }
                 
-                // Adjust viewport height for mobile browsers
                 const vh = window.innerHeight * 0.01;
                 document.documentElement.style.setProperty('--vh', `${vh}px`);
             }, 100);
+        };
+
+        window.addEventListener('orientationchange', orientationHandler);
+        this.addCleanupTask(() => {
+            window.removeEventListener('orientationchange', orientationHandler);
         });
 
         // Set initial viewport height
@@ -3181,105 +3206,20 @@ class MobileEnhancements {
         document.documentElement.style.setProperty('--vh', `${vh}px`);
     }
 
-    showMobileToast(message, type = 'info') {
-        const toast = document.createElement('div');
-        toast.className = `message-toast toast-${type}`;
-        toast.textContent = message;
-        
-        // Style the toast
-        const colors = {
-            info: { bg: '#3b82f6', text: 'white' },
-            success: { bg: '#10b981', text: 'white' },
-            error: { bg: '#ef4444', text: 'white' },
-            warning: { bg: '#f59e0b', text: 'white' }
-        };
-        
-        const color = colors[type] || colors.info;
-        toast.style.backgroundColor = color.bg;
-        toast.style.color = color.text;
-        
-        document.body.appendChild(toast);
-        
-        // Animate in
-        setTimeout(() => {
-            toast.style.opacity = '1';
-            toast.style.transform = 'translateY(0)';
-        }, 10);
-        
-        // Remove after 3 seconds
-        setTimeout(() => {
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateY(-20px)';
-            setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.parentNode.removeChild(toast);
-                }
-            }, 300);
-        }, 3000);
-    }
-
-    // Add haptic feedback for supported devices
-    addHapticFeedback(type = 'light') {
-        if ('vibrate' in navigator) {
-            const patterns = {
-                light: [10],
-                medium: [20],
-                heavy: [30],
-                success: [10, 50, 10],
-                error: [50, 100, 50]
-            };
-            navigator.vibrate(patterns[type] || patterns.light);
-        }
-    }
-}
-
-// Enhanced Dashboard with Mobile Features
-class EnhancedDashboard extends PermitDashboard {
-    constructor() {
-        super();
+    // Dark mode functionality (integrated)
+    initDarkMode() {
         this.darkMode = localStorage.getItem('darkMode') === 'true';
-        this.syncInterval = null;
-        this.initDarkMode();
-        this.initDataSync();
-        
-        // Add cleanup on page unload for iOS
-        window.addEventListener('beforeunload', () => {
-            this.cleanup();
-        });
-        
-        // Add cleanup on page hide (iOS Safari)
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                this.cleanup();
-            }
-        });
-    }
-    
-    cleanup() {
-        try {
-            if (this.syncInterval) {
-                clearInterval(this.syncInterval);
-                this.syncInterval = null;
-            }
-        } catch (error) {
-            console.log('Cleanup error (safe to ignore):', error);
-        }
+        this.applyDarkMode();
     }
 
-    // Dark Mode Toggle
+    // Dark Mode Toggle (integrated into OptimizedDashboard)
     toggleDarkMode() {
         this.darkMode = !this.darkMode;
         localStorage.setItem('darkMode', this.darkMode.toString());
         this.applyDarkMode();
         
         // Haptic feedback
-        if (window.mobileEnhancements) {
-            window.mobileEnhancements.addHapticFeedback('light');
-        }
-    }
-
-    initDarkMode() {
-        this.applyDarkMode();
+        this.addHapticFeedback('light');
     }
 
     applyDarkMode() {
@@ -3295,35 +3235,94 @@ class EnhancedDashboard extends PermitDashboard {
             icon.textContent = this.darkMode ? '☀️' : '🌙';
         }
     }
-
-    // Data Sync between Desktop and Mobile
-    initDataSync() {
-        // Clear any existing interval first
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
+    
+    // Add haptic feedback for supported devices
+    addHapticFeedback(type = 'light') {
+        if ('vibrate' in navigator) {
+            const patterns = {
+                light: [10],
+                medium: [20],
+                heavy: [30],
+                success: [10, 50, 10],
+                error: [50, 100, 50]
+            };
+            navigator.vibrate(patterns[type] || patterns.light);
         }
-        
-        // Sync data every 30 seconds when app is active
-        this.syncInterval = setInterval(() => {
+    }
+
+    // Optimized data sync (reduced frequency)
+    initDataSync() {
+        // Sync data every 2 minutes when app is active (reduced from 30 seconds)
+        this.syncInterval = this.setManagedInterval(() => {
             try {
-                if (!document.hidden) {
+                if (!document.hidden && !this.isDestroyed) {
                     this.syncData();
                 }
             } catch (error) {
                 console.error('Sync error:', error);
             }
-        }, 30000);
+        }, 120000); // 2 minutes instead of 30 seconds
 
-        // Sync when app becomes visible
-        document.addEventListener('visibilitychange', () => {
-            try {
-                if (!document.hidden) {
-                    this.syncData();
+        // Sync when app becomes visible (throttled)
+        let visibilityTimeout;
+        const visibilityHandler = () => {
+            clearTimeout(visibilityTimeout);
+            visibilityTimeout = setTimeout(() => {
+                try {
+                    if (!document.hidden && !this.isDestroyed) {
+                        this.syncData();
+                    }
+                } catch (error) {
+                    console.error('Visibility sync error:', error);
                 }
+            }, 1000); // 1 second throttle
+        };
+        
+        document.addEventListener('visibilitychange', visibilityHandler);
+        this.addCleanupTask(() => {
+            document.removeEventListener('visibilitychange', visibilityHandler);
+            clearTimeout(visibilityTimeout);
+        });
+    }
+    
+    // Pause/resume background tasks for memory optimization
+    pauseBackgroundTasks() {
+        this.backgroundPaused = true;
+        // Clear intervals when page is hidden
+        this.intervals.forEach(id => clearInterval(id));
+        this.intervals.clear();
+    }
+    
+    resumeBackgroundTasks() {
+        if (this.backgroundPaused) {
+            this.backgroundPaused = false;
+            // Restart essential intervals only
+            this.initDataSync();
+        }
+    }
+    
+    // Cleanup method
+    destroy() {
+        if (this.isDestroyed) return;
+        
+        this.isDestroyed = true;
+        
+        // Clear all intervals
+        this.intervals.forEach(id => clearInterval(id));
+        this.intervals.clear();
+        
+        // Run cleanup tasks
+        this.cleanupTasks.forEach(task => {
+            try {
+                task();
             } catch (error) {
-                console.error('Visibility sync error:', error);
+                console.error('Cleanup task error:', error);
             }
         });
+        this.cleanupTasks = [];
+        
+        // Clear references
+        this.eventListeners = null;
     }
 
     async syncData() {
@@ -3670,51 +3669,57 @@ class EnhancedDashboard extends PermitDashboard {
         this.showMobileToast(`🆕 "${fieldName}" added for review`, 'success');
     }
 
-    // Safe message display for iOS compatibility
+    // Safe message display (optimized for memory)
     showSafeMessage(message, type = 'info') {
         try {
-            if (window.mobileEnhancements && window.mobileEnhancements.showMobileToast) {
-                window.mobileEnhancements.showMobileToast(message, type);
-            } else {
-                // Create a safer toast message
-                const toast = document.createElement('div');
-                const bgColor = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#3b82f6';
-                
-                // Use individual style properties instead of cssText for iOS compatibility
-                toast.style.position = 'fixed';
-                toast.style.top = '1rem';
-                toast.style.right = '1rem';
-                toast.style.background = bgColor;
-                toast.style.color = 'white';
-                toast.style.padding = '12px 20px';
-                toast.style.borderRadius = '8px';
-                toast.style.zIndex = '1000';
-                toast.style.fontWeight = '500';
-                toast.style.maxWidth = '300px';
-                toast.style.wordWrap = 'break-word';
-                
-                toast.textContent = message;
-                document.body.appendChild(toast);
-                
-                // Safe removal with timeout
-                setTimeout(() => {
-                    try {
-                        if (toast && toast.parentNode) {
-                            toast.parentNode.removeChild(toast);
-                        }
-                    } catch (e) {
-                        console.log('Toast removal error (safe to ignore):', e);
+            const toast = document.createElement('div');
+            const bgColor = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#3b82f6';
+            
+            // Use individual style properties for better compatibility
+            toast.style.position = 'fixed';
+            toast.style.top = '1rem';
+            toast.style.right = '1rem';
+            toast.style.background = bgColor;
+            toast.style.color = 'white';
+            toast.style.padding = '12px 20px';
+            toast.style.borderRadius = '8px';
+            toast.style.zIndex = '1000';
+            toast.style.fontWeight = '500';
+            toast.style.maxWidth = '300px';
+            toast.style.wordWrap = 'break-word';
+            
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            // Auto-remove with proper cleanup
+            const removeToast = () => {
+                try {
+                    if (toast && toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
                     }
-                }, 3000);
-            }
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
+            };
+            
+            setTimeout(removeToast, 3000);
+            
         } catch (error) {
             console.error('Message display error:', error);
-            // Ultimate fallback
-            console.log(message);
+            console.log(message); // Fallback
         }
     }
 
-    // Mobile toast message (use the one from MobileEnhancements if available)
+    // Refresh data method
+    refreshData() {
+        if (typeof this.loadPermitData === 'function') {
+            this.loadPermitData();
+        } else if (typeof this.loadPermits === 'function') {
+            this.loadPermits();
+        }
+    }
+    
+    // Alias for compatibility
     showMobileToast(message, type = 'info') {
         this.showSafeMessage(message, type);
     }
@@ -3900,8 +3905,15 @@ class EnhancedDashboard extends PermitDashboard {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    window.dashboard = new EnhancedDashboard();
-    window.mobileEnhancements = new MobileEnhancements();
+    // Use single optimized dashboard instance
+    window.dashboard = new OptimizedDashboard();
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        if (window.dashboard && typeof window.dashboard.destroy === 'function') {
+            window.dashboard.destroy();
+        }
+    });
 });
 
 // Handle visibility change to pause/resume auto-refresh

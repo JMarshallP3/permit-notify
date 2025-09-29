@@ -114,12 +114,25 @@ class WSManager:
     def __init__(self):
         self.active: Dict[str, Set[WebSocket]] = {}  # org_id -> set of websockets
         self._lock = asyncio.Lock()
+        self.max_connections_per_org = 10  # Limit connections per org
 
     async def connect(self, ws: WebSocket, org_id: str):
         await ws.accept()
         async with self._lock:
             if org_id not in self.active:
                 self.active[org_id] = set()
+            
+            # Limit connections per org to prevent memory buildup
+            if len(self.active[org_id]) >= self.max_connections_per_org:
+                # Close oldest connection
+                oldest_ws = next(iter(self.active[org_id]), None)
+                if oldest_ws:
+                    try:
+                        await oldest_ws.close()
+                    except:
+                        pass
+                    self.active[org_id].discard(oldest_ws)
+            
             self.active[org_id].add(ws)
 
     async def disconnect(self, ws: WebSocket, org_id: str):
@@ -131,17 +144,43 @@ class WSManager:
 
     async def broadcast_to_org(self, org_id: str, message: Dict[str, Any]):
         """Broadcast message only to websockets for the specified org."""
+        if org_id not in self.active:
+            return
+            
         dead = []
+        connections_to_broadcast = list(self.active.get(org_id, set()))
+        
+        for ws in connections_to_broadcast:
+            try:
+                await asyncio.wait_for(ws.send_json(message), timeout=1.0)  # 1 second timeout
+            except Exception:
+                dead.append(ws)
+        
+        # Clean up dead connections
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    self.active.get(org_id, set()).discard(ws)
+                if org_id in self.active and not self.active[org_id]:
+                    del self.active[org_id]
+    
+    async def cleanup_dead_connections(self):
+        """Periodic cleanup of dead connections"""
         async with self._lock:
-            if org_id not in self.active:
-                return
-            for ws in list(self.active[org_id]):
-                try:
-                    await ws.send_json(message)
-                except Exception:
-                    dead.append(ws)
-        for ws in dead:
-            await self.disconnect(ws, org_id)
+            for org_id in list(self.active.keys()):
+                dead = []
+                for ws in list(self.active[org_id]):
+                    try:
+                        # Send ping to check if connection is alive
+                        await asyncio.wait_for(ws.ping(), timeout=1.0)
+                    except Exception:
+                        dead.append(ws)
+                
+                for ws in dead:
+                    self.active[org_id].discard(ws)
+                
+                if not self.active[org_id]:
+                    del self.active[org_id]
 
 ws_manager = WSManager()
 
@@ -157,21 +196,30 @@ async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_o
         await ws_manager.disconnect(websocket, org_id)
 
 # ---------------------- Background Event Poller ----------------------
-POLL_INTERVAL = float(os.getenv("EVENT_POLL_INTERVAL_SECONDS", "1.0"))
+POLL_INTERVAL = float(os.getenv("EVENT_POLL_INTERVAL_SECONDS", "5.0"))  # Reduced from 1.0 to 5.0 seconds
 
 async def _poll_and_broadcast_events():
     """Poll the events table and broadcast new permit deltas to WS clients per org."""
     # Initialize last seen id to current max
     last_seen = 0
-    with get_session() as session:
-        last_seen = session.execute(select(func.coalesce(func.max(Event.id), 0))).scalar_one()
+    try:
+        with get_session() as session:
+            last_seen = session.execute(select(func.coalesce(func.max(Event.id), 0))).scalar_one()
+    except Exception as e:
+        logger.error(f"[event poller] initialization error: {e}")
+        return
 
     while True:
-        await asyncio.sleep(POLL_INTERVAL)
         try:
+            await asyncio.sleep(POLL_INTERVAL)
+            
+            # Skip if no active websocket connections
+            if not ws_manager.active:
+                continue
+                
             with get_session() as session:
                 new_events = session.execute(
-                    select(Event).where(Event.id > last_seen).order_by(Event.id.asc())
+                    select(Event).where(Event.id > last_seen).order_by(Event.id.asc()).limit(100)  # Limit to prevent memory issues
                 ).scalars().all()
 
                 if not new_events:
@@ -179,38 +227,51 @@ async def _poll_and_broadcast_events():
 
                 last_seen = new_events[-1].id
 
-                # Group events by org_id
+                # Group events by org_id (with memory optimization)
                 events_by_org = {}
                 for event in new_events:
                     if event.entity == "permit":
                         if event.org_id not in events_by_org:
-                            events_by_org[event.org_id] = []
-                        events_by_org[event.org_id].append(event.entity_id)
+                            events_by_org[event.org_id] = set()  # Use set to prevent duplicates
+                        events_by_org[event.org_id].add(event.entity_id)
 
-                # Broadcast to each org separately
+                # Broadcast to each org separately (only if they have active connections)
                 for org_id, permit_ids in events_by_org.items():
-                    if not permit_ids:
+                    if not permit_ids or org_id not in ws_manager.active:
                         continue
 
-                    # De-dupe but preserve relative order
-                    ids_unique = list(dict.fromkeys(permit_ids))
+                    # Convert set to list for database query
+                    ids_list = list(permit_ids)[:50]  # Limit to 50 permits per batch
+                    
                     rows = session.execute(
                         select(Permit)
-                        .where(Permit.id.in_(ids_unique))
+                        .where(Permit.id.in_(ids_list))
                         .where(Permit.org_id == org_id)  # Ensure tenant isolation
                     ).scalars().all()
-                    row_map = {r.id: r for r in rows}
-                    ordered = [row_map[i] for i in ids_unique if i in row_map]
 
-                    payload = {
-                        "type": "batch.permit.delta",
-                        "last_event_id": last_seen,
-                        "permits": [PermitOut.from_orm_row(p).dict() for p in ordered],
-                    }
-                    await ws_manager.broadcast_to_org(org_id, payload)
+                    if rows:
+                        payload = {
+                            "type": "batch.permit.delta",
+                            "last_event_id": last_seen,
+                            "permits": [PermitOut.from_orm_row(p).dict() for p in rows],
+                        }
+                        await ws_manager.broadcast_to_org(org_id, payload)
+                        
         except Exception as e:
-            # Don't crash the loop; log if you have logging configured
+            # Don't crash the loop; log and continue
             logger.error(f"[event poller] error: {e}")
+            await asyncio.sleep(5)  # Wait 5 seconds before retrying on error
+
+async def _cleanup_websockets_periodically():
+    """Periodic cleanup of dead WebSocket connections"""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Clean up every 5 minutes
+            await ws_manager.cleanup_dead_connections()
+            logger.info("🧹 WebSocket cleanup completed")
+        except Exception as e:
+            logger.error(f"[websocket cleanup] error: {e}")
+            await asyncio.sleep(60)  # Wait 1 minute before retrying on error
 
 @app.on_event("startup")
 async def startup_event():
@@ -232,6 +293,13 @@ async def startup_event():
         logger.info("🔄 Real-time event broadcaster started")
     except Exception as e:
         logger.error(f"❌ Failed to start event broadcaster: {e}")
+    
+    # Start WebSocket cleanup task
+    try:
+        asyncio.create_task(_cleanup_websockets_periodically())
+        logger.info("🧹 WebSocket cleanup task started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start WebSocket cleanup: {e}")
     
     # Initialize database tables on startup.
     try:
