@@ -1567,7 +1567,7 @@ class PermitDashboard {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 // Trigger the save function
-                this.savePermitManualMapping(statusNo, oldFieldName, permitUrl);
+                this.savePermitManualMapping(statusNo, currentFieldName, permitUrl);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
                 modal.remove();
