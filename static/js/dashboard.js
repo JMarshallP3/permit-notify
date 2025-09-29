@@ -705,7 +705,7 @@ class PermitDashboard {
                 // Refresh tabs and permit data
                 setTimeout(() => {
                     document.body.removeChild(successMsg);
-                    this.loadPermitData();
+                    this.loadPermits();
                     this.updateReviewQueueDisplay();
                     // Update the saved mappings tab if it exists
                     if (typeof this.updateSavedMappingsDisplay === 'function') {
@@ -1159,15 +1159,21 @@ class PermitDashboard {
                     </div>
                 </div>
                 
-                <div style="padding: 1rem; border-top: 1px solid var(--border-color); text-align: right;">
-                    <button onclick="window.dashboard.exportReservoirMappings()" 
-                            style="padding: 0.75rem 1rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.375rem; cursor: pointer; margin-right: 0.75rem;">
-                        📥 Export Mappings
+                <div style="padding: 1rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                    <button onclick="window.dashboard.showAddManualMappingModal()" 
+                            style="padding: 0.75rem 1rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
+                        ➕ Add Manual Mapping
                     </button>
-                    <button onclick="this.closest('.fixed').remove()" 
-                            style="padding: 0.75rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
-                        Close
-                    </button>
+                    <div>
+                        <button onclick="window.dashboard.exportReservoirMappings()" 
+                                style="padding: 0.75rem 1rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.375rem; cursor: pointer; margin-right: 0.75rem;">
+                            📥 Export Mappings
+                        </button>
+                        <button onclick="this.closest('.fixed').remove()" 
+                                style="padding: 0.75rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
+                            Close
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -1192,6 +1198,100 @@ class PermitDashboard {
             console.error('Error opening Reservoir Manager:', error);
             this.showSafeMessage('Error opening Reservoir Manager: ' + error.message, 'error');
         }
+    }
+    
+    showAddManualMappingModal() {
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1001;';
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 600px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
+                <div style="margin-bottom: 1.5rem;">
+                    <h2 style="margin: 0 0 0.5rem 0; font-size: 1.5rem; font-weight: 600; color: var(--primary-color);">
+                        ➕ Add Manual Reservoir Mapping
+                    </h2>
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">
+                        Paste the raw field name from RRC records and define what reservoir it should map to.
+                    </p>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-primary);">
+                        Raw Field Name (as shown in RRC records):
+                    </label>
+                    <textarea id="rawFieldName" placeholder="Paste the exact field name from RRC records here..." 
+                              style="width: 100%; height: 80px; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; font-family: monospace; font-size: 0.875rem; resize: vertical;"></textarea>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                        Example: "HAWKVILLE (AUSTIN CHALK)" or "Please pay for the SWR 37 exception fee"
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-primary);">
+                        Correct Reservoir Name:
+                    </label>
+                    <input type="text" id="correctReservoir" placeholder="Enter the correct geological reservoir name..." 
+                           style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; font-size: 0.875rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                        Example: "AUSTIN CHALK", "EAGLE FORD", "WOLFCAMP", etc.
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button onclick="this.closest('.fixed').remove()" 
+                            style="padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 0.5rem; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button onclick="window.dashboard.saveManualMapping()" 
+                            style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">
+                        💾 Save Mapping
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Focus the first input
+        setTimeout(() => {
+            modal.querySelector('#rawFieldName').focus();
+        }, 100);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+    
+    saveManualMapping() {
+        const rawFieldName = document.getElementById('rawFieldName').value.trim();
+        const correctReservoir = document.getElementById('correctReservoir').value.trim();
+        
+        if (!rawFieldName || !correctReservoir) {
+            alert('Please fill in both the raw field name and correct reservoir name.');
+            return;
+        }
+        
+        // Add to saved mappings
+        this.addToSavedMappings(rawFieldName, correctReservoir);
+        
+        // Show success message
+        const successMsg = document.createElement('div');
+        successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+        successMsg.textContent = `✅ Manual mapping saved: "${rawFieldName}" → "${correctReservoir}"`;
+        document.body.appendChild(successMsg);
+        
+        // Close modal
+        const modal = document.querySelector('.fixed');
+        if (modal) modal.remove();
+        
+        // Refresh the saved mappings tab
+        setTimeout(() => {
+            document.body.removeChild(successMsg);
+            this.switchReservoirTab('saved');
+        }, 2000);
     }
     
     switchReservoirTab(tabName) {
