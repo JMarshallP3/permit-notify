@@ -56,6 +56,11 @@ def _is_valid_field_name(text: str) -> bool:
         r'into.*shallower',
         r'into.*deeper',
         r'interval',
+        r'application to',
+        r'application is',
+        r'amend surface',
+        r'surface location',
+        r'amend.*location',
         
         # Administrative text
         r'suggested:',
@@ -340,33 +345,71 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
             if horizontal_wellbore:
                 break
     
-    # Look for field name in the Fields table section - TARGETED PARSING
-    # First, try to find the Fields table specifically
+    # Look for field name in the Fields table section - ENHANCED PARSING
+    # Multiple strategies to find the Fields table
     fields_table_found = False
     fields_table_start = None
     
-    # Look for Fields table by finding "District" and "Field Name" headers nearby
+    # Strategy 1: Look for "Fields" section header
     for i, text in enumerate(cell_texts):
-        if text.lower().strip() == "district":
-            # Look for "Field Name" in the next few cells
-            for j in range(i+1, min(i+10, len(cell_texts))):
-                if cell_texts[j].lower().strip() == "field name":
-                    fields_table_found = True
-                    fields_table_start = i
+        if text.lower().strip() == "fields":
+            fields_table_found = True
+            fields_table_start = i
+            break
+    
+    # Strategy 2: Look for Fields table by finding "District" and "Field Name" headers nearby
+    if not fields_table_found:
+        for i, text in enumerate(cell_texts):
+            if text.lower().strip() == "district":
+                # Look for "Field Name" in the next few cells
+                for j in range(i+1, min(i+10, len(cell_texts))):
+                    if "field name" in cell_texts[j].lower():
+                        fields_table_found = True
+                        fields_table_start = i
+                        break
+                if fields_table_found:
                     break
-            if fields_table_found:
+    
+    # Strategy 3: Look for the pattern "District Field Name Field #" which indicates the Fields table header
+    if not fields_table_found:
+        for i, text in enumerate(cell_texts):
+            if ("district" in text.lower() and 
+                i + 2 < len(cell_texts) and 
+                "field name" in cell_texts[i+1].lower() and
+                "field #" in cell_texts[i+2].lower()):
+                fields_table_found = True
+                fields_table_start = i
                 break
     
     # If we found the Fields table, look for field names in the data rows
     if fields_table_found and fields_table_start is not None:
         # Look for field names in the next several cells after the header
-        for j in range(fields_table_start + 10, min(fields_table_start + 50, len(cell_texts))):
+        # Skip the header row and look in data rows
+        for j in range(fields_table_start + 5, min(fields_table_start + 30, len(cell_texts))):
             next_text = cell_texts[j]
             if next_text and _is_valid_field_name(next_text):
                 cleaned = _clean_field_name(next_text)
                 if cleaned:
                     field_name = cleaned
                     break
+        
+        # If still not found, look for specific patterns in Fields table context
+        if not field_name:
+            # Look for district numbers (like "08") followed by field names
+            for j in range(fields_table_start + 1, min(fields_table_start + 50, len(cell_texts))):
+                text = cell_texts[j]
+                # Check if this looks like a district number (1-2 digits)
+                if text and re.match(r'^\d{1,2}$', text.strip()):
+                    # Look at the next few cells for field names
+                    for k in range(j + 1, min(j + 5, len(cell_texts))):
+                        candidate = cell_texts[k]
+                        if candidate and _is_valid_field_name(candidate):
+                            cleaned = _clean_field_name(candidate)
+                            if cleaned:
+                                field_name = cleaned
+                                break
+                    if field_name:
+                        break
     
     # Fallback 1: Look for "Field Name" header and get the next value
     if not field_name:

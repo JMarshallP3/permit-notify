@@ -900,6 +900,34 @@ async def get_reservoir_trends_api(
         logger.error(f"Reservoir trends error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch reservoir trends")
 
+@app.get("/api/v1/permits/count-by-field")
+async def count_permits_by_field_name(
+    field_name: str = Query(..., description="Field name to count"),
+    exclude_status_no: str = Query(None, description="Status number to exclude from count")
+):
+    """
+    Count permits with the same field name (excluding a specific permit).
+    Used for bulk update confirmation dialogs.
+    """
+    try:
+        with get_session() as session:
+            query = session.query(Permit).filter(Permit.field_name == field_name)
+            
+            if exclude_status_no:
+                query = query.filter(Permit.status_no != exclude_status_no)
+            
+            count = query.count()
+            
+            return {
+                "count": count,
+                "field_name": field_name,
+                "excluded_status_no": exclude_status_no
+            }
+            
+    except Exception as e:
+        logger.error(f"Count permits by field error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to count permits")
+
 @app.post("/api/v1/permits/bulk-update-field")
 async def bulk_update_field_names(request_data: dict):
     """

@@ -359,7 +359,7 @@ class PermitDashboard {
                 
                 <div class="permit-card-actions">
                     ${permit.detail_url ? `
-                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline">
+                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline" style="text-decoration: none; display: inline-block;">
                             📄 View Permit
                         </a>
                     ` : ''}
@@ -1465,14 +1465,28 @@ class PermitDashboard {
             
             const result = await response.json();
             
-            // 3. Cross-reference and update other permits with same wrong field name
-            await this.crossReferenceAndUpdatePermits(oldFieldName, correctFieldName);
+            // 3. Check for other permits with same wrong field name and show confirmation
+            const otherPermitsCount = await this.countPermitsWithSameFieldName(oldFieldName, statusNo);
+            
+            if (otherPermitsCount > 0) {
+                const confirmed = await this.showBulkUpdateConfirmation(otherPermitsCount, oldFieldName, correctFieldName);
+                if (confirmed) {
+                    await this.crossReferenceAndUpdatePermits(oldFieldName, correctFieldName);
+                }
+            }
             
             // Show success message
             const successMsg = document.createElement('div');
             successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
             successMsg.textContent = `✅ Mapping saved and database updated: "${correctFieldName}" → "${correctReservoir}"`;
             document.body.appendChild(successMsg);
+            
+            // Auto-remove success message after 4 seconds
+            setTimeout(() => {
+                if (successMsg.parentNode) {
+                    successMsg.remove();
+                }
+            }, 4000);
             
             // Close modal
             const modal = document.querySelector('.fixed');
@@ -1562,6 +1576,55 @@ class PermitDashboard {
         const hasInvalidPattern = invalidPatterns.some(pattern => name.includes(pattern));
         
         return (containsValidTerm || hasFormationPattern) && !hasInvalidPattern;
+    }
+
+    // Check if field name is incorrectly parsed from comments/remarks
+    isIncorrectlyParsedFieldName(fieldName) {
+        if (!fieldName) return false;
+        
+        const incorrectPatterns = [
+            // Dates and times
+            /\d{2}\/\d{2}\/\d{4}/,
+            /\d{1,2}:\d{2}:\d{2}/,
+            /(AM|PM)/i,
+            
+            // Commission staff comments
+            /commission staff/i,
+            /expresses no opinion/i,
+            /staff expresses/i,
+            /no opinion/i,
+            
+            // Application-related text
+            /application to/i,
+            /application is/i,
+            /amend surface/i,
+            /surface location/i,
+            
+            // Problem/issue indicators
+            /additional problems/i,
+            /there are additional/i,
+            /problems with/i,
+            
+            // Generic administrative text
+            /please pay/i,
+            /exception fee/i,
+            /re-entry permit/i,
+            /revised plat/i,
+            /changed.*survey/i,
+            /allocation wells/i,
+            /drilled concurre/i,
+            
+            // Long sentences (likely comments)
+            /^.{100,}/, // More than 100 characters is likely a comment
+            
+            // Contains multiple sentences
+            /\.\s+[A-Z]/, // Period followed by space and capital letter
+            
+            // Parenthetical timestamps
+            /\(\s*\d{2}\/\d{2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s*(AM|PM)?\s*\)/i
+        ];
+        
+        return incorrectPatterns.some(pattern => pattern.test(fieldName));
     }
     
     acceptNewReservoir(permit) {
@@ -4198,11 +4261,12 @@ class OptimizedDashboard extends PermitDashboard {
         // Get the original card HTML from the parent class method
         const originalCard = this.generatePermitCardHTML(permit);
         
-        // Check if this is a new/unknown reservoir
+        // Check if this is a new/unknown reservoir that needs attention
         const isNewReservoir = permit.field_name && 
                               !this.reservoirMapping[permit.field_name] && 
                               permit.field_name !== 'Unknown' &&
-                              !permit.field_name.includes('(exactly as shown in RRC records)');
+                              !permit.field_name.includes('(exactly as shown in RRC records)') &&
+                              !this.isIncorrectlyParsedFieldName(permit.field_name);
 
         if (isNewReservoir) {
             // Add "New Reservoir Detected" banner
@@ -4303,7 +4367,7 @@ class OptimizedDashboard extends PermitDashboard {
                 
                 <div class="permit-card-actions">
                     ${permit.detail_url ? `
-                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline">
+                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline" style="text-decoration: none; display: inline-block;">
                             📄 View Permit
                         </a>
                     ` : ''}
@@ -4435,6 +4499,81 @@ class OptimizedDashboard extends PermitDashboard {
         } catch (error) {
             console.error('Error clearing cache:', error);
         }
+    }
+
+    // Count permits with the same field name (excluding current permit)
+    async countPermitsWithSameFieldName(fieldName, excludeStatusNo) {
+        try {
+            const response = await fetch(`/api/v1/permits/count-by-field?field_name=${encodeURIComponent(fieldName)}&exclude_status_no=${excludeStatusNo}`);
+            if (!response.ok) {
+                console.warn('Could not count permits with same field name');
+                return 0;
+            }
+            const data = await response.json();
+            return data.count || 0;
+        } catch (error) {
+            console.warn('Error counting permits:', error);
+            return 0;
+        }
+    }
+
+    // Show confirmation dialog for bulk updates
+    async showBulkUpdateConfirmation(count, wrongField, correctField) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1003;';
+            
+            modal.innerHTML = `
+                <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 500px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
+                    <div style="margin-bottom: 1.5rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🔄</div>
+                        <h2 style="margin: 0 0 0.5rem 0; font-size: 1.5rem; font-weight: 600; color: var(--primary-color);">
+                            Bulk Update Available
+                        </h2>
+                        <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">
+                            Found <strong>${count}</strong> other permit${count !== 1 ? 's' : ''} with the same incorrect field name.
+                        </p>
+                    </div>
+                    
+                    <div style="background: #f8fafc; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.875rem;">
+                        <div style="margin-bottom: 0.5rem;">
+                            <strong>Wrong:</strong> <span style="color: #dc2626;">"${wrongField.length > 50 ? wrongField.substring(0, 50) + '...' : wrongField}"</span>
+                        </div>
+                        <div>
+                            <strong>Correct:</strong> <span style="color: #059669;">"${correctField}"</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                        <button onclick="this.closest('.fixed').remove(); window.bulkUpdateResolve(false);" 
+                                style="padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 0.5rem; cursor: pointer;">
+                            Skip Bulk Update
+                        </button>
+                        <button onclick="this.closest('.fixed').remove(); window.bulkUpdateResolve(true);" 
+                                style="padding: 0.75rem 1.5rem; background: #059669; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">
+                            Update All ${count} Permits
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Set up global resolver
+            window.bulkUpdateResolve = (result) => {
+                delete window.bulkUpdateResolve;
+                resolve(result);
+            };
+            
+            // Close on outside click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                    delete window.bulkUpdateResolve;
+                    resolve(false);
+                }
+            });
+        });
     }
 
 
