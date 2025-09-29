@@ -52,6 +52,60 @@ class PermitDashboard {
         this.loadPermits();
         this.startAutoRefresh();
         this.updateStats();
+        
+        // Ensure no reservoir management content appears on main dashboard
+        this.cleanupMainDashboard();
+    }
+    
+    // Prevent reservoir management content from appearing on main dashboard
+    cleanupMainDashboard() {
+        // Remove any reservoir management content that might have been inserted
+        const mainContainer = document.getElementById('permitsContainer');
+        if (mainContainer) {
+            // Remove any elements that contain reservoir management content
+            const reservoirElements = mainContainer.querySelectorAll('[data-tab="review"], [data-tab="saved"], .reservoir-tab, .reservoir-management-modal');
+            reservoirElements.forEach(el => el.remove());
+        }
+        
+        // Also check for any standalone reservoir management sections
+        const reservoirSections = document.querySelectorAll('.reservoir-management, .reservoir-tabs, .reservoir-content');
+        reservoirSections.forEach(el => {
+            // Only remove if not inside a modal
+            if (!el.closest('.reservoir-manager-modal')) {
+                el.remove();
+            }
+        });
+        
+        // Set up a mutation observer to prevent future insertions
+        this.setupMainDashboardProtection();
+    }
+    
+    // Set up protection against reservoir management content being inserted into main dashboard
+    setupMainDashboardProtection() {
+        const mainContainer = document.getElementById('permitsContainer');
+        if (!mainContainer) return;
+        
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        // Check if added node contains reservoir management content
+                        if (node.matches && (
+                            node.matches('.reservoir-management, .reservoir-tabs, .reservoir-content') ||
+                            node.querySelector('.reservoir-management, .reservoir-tabs, .reservoir-content')
+                        )) {
+                            // Only remove if not inside a modal
+                            if (!node.closest('.reservoir-manager-modal')) {
+                                console.warn('Removing reservoir management content from main dashboard');
+                                node.remove();
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(mainContainer, { childList: true, subtree: true });
     }
     
     setupEventListeners() {
@@ -997,8 +1051,16 @@ class PermitDashboard {
     }
     
     updateReviewQueueDisplay() {
+        // Only update if we're in the reservoir management modal
         const reviewQueueEl = document.getElementById('reviewQueue');
         if (!reviewQueueEl) return;
+        
+        // Additional safety check: only update if element is inside a modal
+        const modal = reviewQueueEl.closest('.reservoir-manager-modal');
+        if (!modal) {
+            console.warn('Review queue element found outside of modal context - skipping update');
+            return;
+        }
         
         if (this.reviewQueue.length === 0) {
             reviewQueueEl.innerHTML = `
@@ -1626,6 +1688,44 @@ class PermitDashboard {
         
         return incorrectPatterns.some(pattern => pattern.test(fieldName));
     }
+
+    // Check if permit needs reservoir management (show Manage Reservoir button)
+    needsReservoirManagement(permit) {
+        if (!permit.field_name) return false;
+        
+        const fieldName = permit.field_name;
+        const extractedReservoir = this.extractReservoir(fieldName);
+        
+        // Show button if:
+        // 1. Reservoir shows as "UNKNOWN"
+        if (extractedReservoir === 'UNKNOWN') return true;
+        
+        // 2. Field name is incorrectly parsed (timestamps, comments, etc.)
+        if (this.isIncorrectlyParsedFieldName(fieldName)) return true;
+        
+        // 3. Field name contains timestamp patterns
+        if (/\d{2}\/\d{2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s*(AM|PM)?/i.test(fieldName)) return true;
+        
+        // 4. Field name is clearly not a geological formation
+        const nonGeologicalPatterns = [
+            /^unknown$/i,
+            /^-$/,
+            /^n\/a$/i,
+            /^not available$/i,
+            /^pending$/i,
+            /^tbd$/i,
+            /^to be determined$/i
+        ];
+        
+        if (nonGeologicalPatterns.some(pattern => pattern.test(fieldName))) return true;
+        
+        // 5. Field name is not already mapped and doesn't look like a valid reservoir
+        if (!this.reservoirMapping[fieldName] && !this.isValidReservoirName(fieldName)) {
+            return true;
+        }
+        
+        return false;
+    }
     
     acceptNewReservoir(permit) {
         try {
@@ -1654,13 +1754,14 @@ class PermitDashboard {
             successMsg.textContent = `✅ Accepted reservoir: "${fieldName}" → "${reservoirName.toUpperCase()}"`;
             document.body.appendChild(successMsg);
             
+            // Immediately refresh to update card formatting
+            this.applyFilters(); // Re-render cards with updated mappings
+            
             // Remove success message after 3 seconds
             setTimeout(() => {
                 if (successMsg && successMsg.parentNode) {
                     document.body.removeChild(successMsg);
                 }
-                // Refresh the permits to remove the "New Reservoir Detected" banner
-                this.loadPermits();
             }, 3000);
             
         } catch (error) {
@@ -4370,6 +4471,12 @@ class OptimizedDashboard extends PermitDashboard {
                         <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline" style="text-decoration: none; display: inline-block;">
                             📄 View Permit
                         </a>
+                    ` : ''}
+                    
+                    ${this.needsReservoirManagement(permit) ? `
+                        <button class="btn btn-sm btn-warning" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
+                            ⚙️ Manage Reservoir
+                        </button>
                     ` : ''}
                     
                     <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
