@@ -67,12 +67,35 @@ class PermitDashboard {
             reservoirElements.forEach(el => el.remove());
         }
         
-        // Also check for any standalone reservoir management sections
-        const reservoirSections = document.querySelectorAll('.reservoir-management, .reservoir-tabs, .reservoir-content');
+        // More aggressive cleanup - check entire document for reservoir management content
+        const reservoirSections = document.querySelectorAll('.reservoir-management, .reservoir-tabs, .reservoir-content, .reservoir-tab-content, .reservoir-management-modal');
         reservoirSections.forEach(el => {
             // Only remove if not inside a modal
             if (!el.closest('.reservoir-manager-modal')) {
+                console.log('Removing reservoir management content from main dashboard:', el);
                 el.remove();
+            }
+        });
+        
+        // Check for elements with text content that indicates reservoir management
+        const allDivs = document.querySelectorAll('div');
+        allDivs.forEach(div => {
+            const text = div.textContent;
+            if (text && (
+                text.includes('Under Review') || 
+                text.includes('Saved Mappings') ||
+                text.includes('Reservoir Management') ||
+                text.includes('B.L BUSH') ||
+                text.includes('BUSH 23') ||
+                text.includes('BIVINS')
+            )) {
+                // Only remove if not inside a modal and not in sidebar
+                if (!div.closest('.reservoir-manager-modal') && 
+                    !div.closest('.sidebar') && 
+                    !div.closest('.card-title')) {
+                    console.log('Removing div with reservoir management text:', div);
+                    div.remove();
+                }
             }
         });
         
@@ -91,12 +114,30 @@ class PermitDashboard {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         // Check if added node contains reservoir management content
                         if (node.matches && (
-                            node.matches('.reservoir-management, .reservoir-tabs, .reservoir-content') ||
-                            node.querySelector('.reservoir-management, .reservoir-tabs, .reservoir-content')
+                            node.matches('.reservoir-management, .reservoir-tabs, .reservoir-content, .reservoir-tab-content') ||
+                            node.querySelector('.reservoir-management, .reservoir-tabs, .reservoir-content, .reservoir-tab-content')
                         )) {
                             // Only remove if not inside a modal
                             if (!node.closest('.reservoir-manager-modal')) {
                                 console.warn('Removing reservoir management content from main dashboard');
+                                node.remove();
+                            }
+                        }
+                        
+                        // Also check text content
+                        const text = node.textContent;
+                        if (text && (
+                            text.includes('Under Review') || 
+                            text.includes('Saved Mappings') ||
+                            text.includes('B.L BUSH') ||
+                            text.includes('BUSH 23') ||
+                            text.includes('BIVINS')
+                        )) {
+                            // Only remove if not inside a modal and not in sidebar
+                            if (!node.closest('.reservoir-manager-modal') && 
+                                !node.closest('.sidebar') && 
+                                !node.closest('.card-title')) {
+                                console.warn('Removing node with reservoir management text from main dashboard');
                                 node.remove();
                             }
                         }
@@ -106,6 +147,29 @@ class PermitDashboard {
         });
         
         observer.observe(mainContainer, { childList: true, subtree: true });
+        
+        // Also observe the entire document body for more comprehensive protection
+        const bodyObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE && 
+                        !node.closest('.reservoir-manager-modal') && 
+                        !node.closest('.sidebar')) {
+                        
+                        // Check for reservoir management classes
+                        if (node.matches && (
+                            node.matches('.reservoir-management, .reservoir-tabs, .reservoir-content, .reservoir-tab-content') ||
+                            node.querySelector('.reservoir-management, .reservoir-tabs, .reservoir-content, .reservoir-tab-content')
+                        )) {
+                            console.warn('Removing reservoir management content from document body');
+                            node.remove();
+                        }
+                    }
+                });
+            });
+        });
+        
+        bodyObserver.observe(document.body, { childList: true, subtree: true });
     }
     
     setupEventListeners() {
@@ -189,7 +253,7 @@ class PermitDashboard {
             const daysBack = this.daysBack || 7;
             // Add cache-busting parameter to force fresh data
             const cacheBuster = Date.now();
-            const response = await fetch(`/api/v1/permits?limit=25&days_back=${daysBack}&_cb=${cacheBuster}`, {
+            const response = await fetch(`/api/v1/permits?limit=100&days_back=${daysBack}&_cb=${cacheBuster}`, {
                 cache: 'no-cache',
                 headers: {
                     'Cache-Control': 'no-cache',
@@ -215,6 +279,9 @@ class PermitDashboard {
             this.updateStats();
             this.updateLastRefreshTime();
             this.buildMultiSelectOptions();
+            
+            // Cleanup any reservoir management content that might have appeared
+            setTimeout(() => this.cleanupMainDashboard(), 100);
             
         } catch (error) {
             console.error('Error loading permits:', error);
@@ -417,6 +484,10 @@ class PermitDashboard {
                             📄 View Permit
                         </a>
                     ` : ''}
+                    
+                    <button class="btn btn-sm btn-warning" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
+                        ⚙️ Manage Reservoir
+                    </button>
                     
                     <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
                         🔄 Re-enrich
@@ -4447,15 +4518,15 @@ class OptimizedDashboard extends PermitDashboard {
                     <div class="permit-info-row">
                         <span class="permit-label">Queue</span>
                         <span class="permit-value">
-                            <span class="permit-status ${this.getQueueStatusClass(permit.queue_status)}">
-                                ${permit.queue_status || 'Not Queued'}
+                            <span class="permit-status ${this.getQueueStatusClass(permit.current_queue)}">
+                                ${permit.current_queue || 'Not Queued'}
                             </span>
                         </span>
                     </div>
                     
                     <div class="permit-info-row">
                         <span class="permit-label">Drill Type</span>
-                        <span class="permit-value">${permit.drill_type || '-'}</span>
+                        <span class="permit-value">${permit.wellbore_profile || '-'}</span>
                     </div>
                     
                     <div class="permit-info-row">
@@ -4473,11 +4544,9 @@ class OptimizedDashboard extends PermitDashboard {
                         </a>
                     ` : ''}
                     
-                    ${this.needsReservoirManagement(permit) ? `
-                        <button class="btn btn-sm btn-warning" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
-                            ⚙️ Manage Reservoir
-                        </button>
-                    ` : ''}
+                    <button class="btn btn-sm btn-warning" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
+                        ⚙️ Manage Reservoir
+                    </button>
                     
                     <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
                         🔄 Re-enrich
