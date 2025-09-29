@@ -1334,7 +1334,8 @@ class PermitDashboard {
         const statusNo = permit.status_no || '';
         
         // Construct RRC URL if not available
-        const rrcUrl = permitUrl || `https://webapps.rrc.state.tx.us/DP/publicQueryAction.do?searchType=statusNumber&statusNumber=${statusNo}`;
+        // The correct format needs univDocNo which we don't have, so we'll use the public search
+        const rrcUrl = permitUrl || `https://webapps.rrc.state.tx.us/DP/publicQueryAction.do`;
         
         modal.innerHTML = `
             <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 700px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
@@ -1346,15 +1347,25 @@ class PermitDashboard {
                         Status: ${statusNo} • Copy the correct field name from RRC records and define the reservoir.
                     </p>
                     <div style="margin-top: 0.75rem;">
-                        <a href="${rrcUrl}" target="_blank" 
-                           style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
-                            📄 Open RRC Permit Details
-                        </a>
-                        ${!permitUrl ? `
-                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                                Search for Status #${statusNo} on RRC website
+                        ${permitUrl ? `
+                            <a href="${permitUrl}" target="_blank" 
+                               style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
+                                📄 Open RRC Permit Details
+                            </a>
+                        ` : `
+                            <a href="https://webapps.rrc.state.tx.us/DP/publicQueryAction.do" target="_blank" 
+                               style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
+                                🔍 Search RRC Database
+                            </a>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; padding: 0.5rem; background: #f3f4f6; border-radius: 0.375rem;">
+                                <strong>Instructions:</strong><br>
+                                1. Click "🔍 Search RRC Database" above<br>
+                                2. Select "Status Number" from dropdown<br>
+                                3. Enter Status #: <strong>${statusNo}</strong><br>
+                                4. Click "Submit Query" to find the permit<br>
+                                5. Copy the correct field name from the permit details
                             </div>
-                        ` : ''}
+                        `}
                     </div>
                 </div>
                 
