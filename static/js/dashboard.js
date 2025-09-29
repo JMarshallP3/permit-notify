@@ -288,7 +288,7 @@ class PermitDashboard {
         return `
             <div class="permit-card ${isDismissed ? 'dismissed' : ''}" data-permit-id="${permit.status_no}">
                 <div class="permit-card-header">
-                    <div class="permit-date">${this.formatDate(permit.status_date)}</div>
+                    <div class="permit-date">${this.formatDate(permit.created_at || permit.status_date)}</div>
                 </div>
                 
                 <div class="permit-card-body">
@@ -345,13 +345,14 @@ class PermitDashboard {
                 <div class="permit-card-actions">
                     ${permit.detail_url ? `
                         <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline">
-                            📄 View Details
+                            📄 View Permit
                         </a>
-                    ` : `
-                        <button class="btn btn-sm btn-outline" disabled style="opacity: 0.5;">
-                            📄 No URL Available
+                    ` : ''}
+                    
+                    <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
+                        🔄 Re-enrich
                         </button>
-                    `}
+                    
                     <button class="btn btn-sm btn-outline" data-permit-id="${permit.status_no}" onclick="window.dashboard.dismissPermit('${permit.status_no}')">
                         ✕ Dismiss
                     </button>
@@ -1138,8 +1139,8 @@ class PermitDashboard {
                 existingModal.remove();
             }
             
-            // Create the comprehensive reservoir management modal
-            const modal = document.createElement('div');
+        // Create the comprehensive reservoir management modal
+        const modal = document.createElement('div');
         modal.className = 'reservoir-manager-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         
@@ -1189,14 +1190,14 @@ class PermitDashboard {
                         ➕ Add Manual Mapping
                     </button>
                     <div>
-                        <button onclick="window.dashboard.exportReservoirMappings()" 
-                                style="padding: 0.75rem 1rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.375rem; cursor: pointer; margin-right: 0.75rem;">
-                            📥 Export Mappings
-                        </button>
-                        <button onclick="this.closest('.fixed').remove()" 
-                                style="padding: 0.75rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
-                            Close
-                        </button>
+                    <button onclick="window.dashboard.exportReservoirMappings()" 
+                            style="padding: 0.75rem 1rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.375rem; cursor: pointer; margin-right: 0.75rem;">
+                        📥 Export Mappings
+                    </button>
+                    <button onclick="this.closest('.fixed').remove()" 
+                            style="padding: 0.75rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
+                        Close
+                    </button>
                     </div>
                 </div>
             </div>
@@ -1333,10 +1334,6 @@ class PermitDashboard {
         const permitUrl = permit.detail_url || '';
         const statusNo = permit.status_no || '';
         
-        // Construct RRC URL if not available
-        // The correct format needs univDocNo which we don't have, so we'll use the public search
-        const rrcUrl = permitUrl || `https://webapps.rrc.state.tx.us/DP/publicQueryAction.do`;
-        
         modal.innerHTML = `
             <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 700px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
                 <div style="margin-bottom: 1.5rem;">
@@ -1346,27 +1343,18 @@ class PermitDashboard {
                     <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">
                         Status: ${statusNo} • Copy the correct field name from RRC records and define the reservoir.
                     </p>
-                    <div style="margin-top: 0.75rem;">
-                        ${permitUrl ? `
+                    ${permitUrl ? `
+                        <div style="margin-top: 0.75rem;">
                             <a href="${permitUrl}" target="_blank" 
                                style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
                                 📄 Open RRC Permit Details
                             </a>
-                        ` : `
-                            <a href="https://webapps.rrc.state.tx.us/DP/publicQueryAction.do" target="_blank" 
-                               style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary-color); color: white; text-decoration: none; border-radius: 0.375rem; font-size: 0.875rem;">
-                                🔍 Search RRC Database
-                            </a>
-                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem; padding: 0.5rem; background: #f3f4f6; border-radius: 0.375rem;">
-                                <strong>Instructions:</strong><br>
-                                1. Click "🔍 Search RRC Database" above<br>
-                                2. Select "Status Number" from dropdown<br>
-                                3. Enter Status #: <strong>${statusNo}</strong><br>
-                                4. Click "Submit Query" to find the permit<br>
-                                5. Copy the correct field name from the permit details
-                            </div>
-                        `}
-                    </div>
+                        </div>
+                    ` : `
+                        <div style="margin-top: 0.75rem; padding: 0.5rem; background: #f3f4f6; border-radius: 0.375rem; font-size: 0.75rem; color: var(--text-secondary);">
+                            <strong>Note:</strong> This is a historical permit imported for trend analysis. No RRC link available.
+                        </div>
+                    `}
                 </div>
                 
                 <div style="margin-bottom: 1.5rem;">
@@ -1748,75 +1736,75 @@ class PermitDashboard {
         if (contentDiv && this._allSavedMappings) {
             // Temporarily show all mappings (user requested)
             const savedMappings = this._allSavedMappings;
-            
-            // Group mappings by reservoir
-            const groupedMappings = {};
-            savedMappings.forEach(([fieldName, reservoir]) => {
-                if (!groupedMappings[reservoir]) {
-                    groupedMappings[reservoir] = [];
-                }
-                groupedMappings[reservoir].push(fieldName);
-            });
-            
-            // Sort reservoirs alphabetically
-            const sortedReservoirs = Object.keys(groupedMappings).sort();
-            
-            contentDiv.innerHTML = `
-                <div style="display: grid; gap: 1.5rem;">
+        
+        // Group mappings by reservoir
+        const groupedMappings = {};
+        savedMappings.forEach(([fieldName, reservoir]) => {
+            if (!groupedMappings[reservoir]) {
+                groupedMappings[reservoir] = [];
+            }
+            groupedMappings[reservoir].push(fieldName);
+        });
+        
+        // Sort reservoirs alphabetically
+        const sortedReservoirs = Object.keys(groupedMappings).sort();
+        
+        contentDiv.innerHTML = `
+            <div style="display: grid; gap: 1.5rem;">
                     <div style="text-align: center; padding: 1rem; background: var(--warning-bg); border: 1px solid var(--warning-color); border-radius: 0.5rem; color: var(--warning-text);">
                         ⚠️ Showing all ${savedMappings.length} mappings - this may impact performance
                     </div>
-                    ${sortedReservoirs.map(reservoir => `
-                        <div style="border: 1px solid var(--border-color); border-radius: 0.75rem; overflow: hidden; background: var(--surface-color);">
-                            <div style="padding: 1rem; background: var(--gradient-primary); color: white;">
-                                <h3 style="margin: 0; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
-                                    <span class="reservoir-display" style="background: rgba(255,255,255,0.2); padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem;">
-                                        ${reservoir}
-                                    </span>
-                                    <span style="font-size: 0.875rem; opacity: 0.9;">
-                                        (${groupedMappings[reservoir].length} field${groupedMappings[reservoir].length !== 1 ? 's' : ''})
-                                    </span>
-                                </h3>
-                            </div>
-                            <div style="padding: 1rem;">
-                                <div style="display: grid; gap: 0.75rem;">
-                                    ${groupedMappings[reservoir].map(fieldName => `
-                                        <div style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--background-color); display: flex; justify-content: space-between; align-items: center;">
-                                            <div style="flex: 1; min-width: 0;">
-                                                <div style="font-weight: 500; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
-                                                    ${fieldName}
-                                                </div>
-                                                <div style="font-size: 0.75rem; color: var(--text-secondary);">
-                                                    Maps to: <strong>${reservoir}</strong>
-                                                </div>
+                ${sortedReservoirs.map(reservoir => `
+                    <div style="border: 1px solid var(--border-color); border-radius: 0.75rem; overflow: hidden; background: var(--surface-color);">
+                        <div style="padding: 1rem; background: var(--gradient-primary); color: white;">
+                            <h3 style="margin: 0; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="reservoir-display" style="background: rgba(255,255,255,0.2); padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem;">
+                                    ${reservoir}
+                                </span>
+                                <span style="font-size: 0.875rem; opacity: 0.9;">
+                                    (${groupedMappings[reservoir].length} field${groupedMappings[reservoir].length !== 1 ? 's' : ''})
+                                </span>
+                            </h3>
+                        </div>
+                        <div style="padding: 1rem;">
+                            <div style="display: grid; gap: 0.75rem;">
+                                ${groupedMappings[reservoir].map(fieldName => `
+                                    <div style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--background-color); display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="flex: 1; min-width: 0;">
+                                            <div style="font-weight: 500; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
+                                                ${fieldName}
                                             </div>
-                                            <div style="display: flex; gap: 0.5rem; margin-left: 1rem;">
-                                                <button onclick="window.dashboard.editReservoirMapping('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
-                                                        style="padding: 0.375rem 0.75rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
-                                                    ✏️ Edit
-                                                </button>
+                                            <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                                Maps to: <strong>${reservoir}</strong>
+                                            </div>
+                                        </div>
+                                        <div style="display: flex; gap: 0.5rem; margin-left: 1rem;">
+                                            <button onclick="window.dashboard.editReservoirMapping('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
+                                                    style="padding: 0.375rem 0.75rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
+                                                ✏️ Edit
+                                            </button>
                                                 <button onclick="window.dashboard.flagIncorrectFieldName('${fieldName.replace(/'/g, "\\'")}')" 
                                                         style="padding: 0.375rem 0.75rem; background: #ff6b35; color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;" 
                                                         title="Report this field name as incorrectly parsed">
                                                     🚩 Report Incorrect
-                                                </button>
-                                                <button onclick="window.dashboard.moveToReview('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
-                                                        style="padding: 0.375rem 0.75rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
-                                                    📋 Review
-                                                </button>
-                                                <button onclick="window.dashboard.deleteReservoirMapping('${fieldName.replace(/'/g, "\\'")}')" 
-                                                        style="padding: 0.375rem 0.75rem; background: var(--error-color); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
-                                                    🗑️
-                                                </button>
-                                            </div>
+                                            </button>
+                                            <button onclick="window.dashboard.moveToReview('${fieldName.replace(/'/g, "\\'")}', '${reservoir.replace(/'/g, "\\'")}')" 
+                                                    style="padding: 0.375rem 0.75rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
+                                                📋 Review
+                                            </button>
+                                            <button onclick="window.dashboard.deleteReservoirMapping('${fieldName.replace(/'/g, "\\'")}')" 
+                                                    style="padding: 0.375rem 0.75rem; background: var(--error-color); color: white; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem;">
+                                                🗑️
+                                            </button>
                                         </div>
-                                    `).join('')}
-                                </div>
+                                    </div>
+                                `).join('')}
                             </div>
                         </div>
-                    `).join('')}
-                </div>
-            `;
+                    </div>
+                `).join('')}
+            </div>
+        `;
         }
     }
     
@@ -1849,7 +1837,7 @@ class PermitDashboard {
         
         const showAll = individualPermits.length <= REVIEW_DISPLAY_LIMIT;
         const displayPermits = showAll ? individualPermits : individualPermits.slice(0, REVIEW_DISPLAY_LIMIT);
-
+        
         contentDiv.innerHTML = `
             <div style="display: grid; gap: 1rem;">
                 ${displayPermits.map(permit => `
@@ -2453,9 +2441,15 @@ class PermitDashboard {
     formatDate(dateStr) {
         if (!dateStr) return '-';
         try {
-            // Handle MM-DD-YYYY format from API
+            // Handle various date formats
             let date;
-            if (dateStr.includes('-') && dateStr.length === 10) {
+            
+            // Handle ISO format from created_at (2025-09-29T15:53:56:948Z)
+            if (dateStr.includes('T')) {
+                date = new Date(dateStr);
+            }
+            // Handle MM-DD-YYYY format from status_date
+            else if (dateStr.includes('-') && dateStr.length === 10) {
                 const parts = dateStr.split('-');
                 if (parts.length === 3 && parts[0].length === 2) {
                     // Assume MM-DD-YYYY format
@@ -2776,8 +2770,8 @@ class PermitDashboard {
     
     async openReservoirTrends(specificReservoir = null) {
         try {
-            // Create the modal
-            const modal = document.createElement('div');
+        // Create the modal
+        const modal = document.createElement('div');
         modal.className = 'trends-modal';
         modal.style.cssText = `
             position: fixed; 
@@ -4242,7 +4236,7 @@ class OptimizedDashboard extends PermitDashboard {
         return `
             <div class="permit-card ${isDismissed ? 'dismissed' : ''}" data-permit-id="${permit.status_no}">
                 <div class="permit-card-header">
-                    <div class="permit-date">${this.formatDate(permit.status_date)}</div>
+                    <div class="permit-date">${this.formatDate(permit.created_at || permit.status_date)}</div>
                 </div>
                 
                 <div class="permit-card-body">
@@ -4295,7 +4289,7 @@ class OptimizedDashboard extends PermitDashboard {
                 <div class="permit-card-actions">
                     ${permit.detail_url ? `
                         <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline">
-                            📄 View Details
+                            📄 View Permit
                         </a>
                     ` : ''}
                     
