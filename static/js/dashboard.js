@@ -13,7 +13,7 @@ class PermitDashboard {
         this.sortOrder = 'desc';
         this.lastUpdate = null;
         this.autoRefresh = true;
-        this.refreshInterval = 60000; // 1 minute
+        this.refreshInterval = 120000; // 2 minutes (reduced frequency for better performance)
         this.dismissedPermits = new Set(); // Track dismissed permits
         this.showDismissed = false; // Show dismissed permits toggle
         this.todayOnly = false; // Show today only toggle
@@ -122,7 +122,7 @@ class PermitDashboard {
         try {
             this.showLoading(true);
             
-            const response = await fetch('/api/v1/permits?limit=100');
+            const response = await fetch('/api/v1/permits?limit=50');
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
@@ -1092,8 +1092,10 @@ class PermitDashboard {
     }
     
     openReservoirManager() {
-        // Create the comprehensive reservoir management modal
-        const modal = document.createElement('div');
+        try {
+            console.log('Opening Reservoir Manager...');
+            // Create the comprehensive reservoir management modal
+            const modal = document.createElement('div');
         modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         
@@ -1161,6 +1163,13 @@ class PermitDashboard {
                 modal.remove();
             }
         });
+        
+        console.log('Reservoir Manager opened successfully');
+        
+        } catch (error) {
+            console.error('Error opening Reservoir Manager:', error);
+            this.showSafeMessage('Error opening Reservoir Manager: ' + error.message, 'error');
+        }
     }
     
     switchReservoirTab(tabName) {
@@ -2977,15 +2986,7 @@ class PermitDashboard {
                 </div>
             `).join('');
             
-            // Add "View All Trends" button
-            reservoirStatsEl.innerHTML += `
-                <div style="padding: 0.75rem 0; text-align: center;">
-                    <button onclick="window.dashboard.openReservoirTrends()" 
-                            style="padding: 0.5rem 1rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem;">
-                        📈 View All Trends
-                    </button>
-                </div>
-            `;
+            // View All Trends button is now in the HTML template
         }
     }
     
