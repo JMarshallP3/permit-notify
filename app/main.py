@@ -20,7 +20,7 @@ from services.enrichment.worker import EnrichmentWorker, run_once
 from services.enrichment.detail_parser import parse_detail_page
 from services.enrichment.pdf_parse import extract_text_from_pdf, parse_reservoir_well_count
 from services.field_learning import field_learning
-from db.models import Permit, Event
+from db.models import Permit, Event, FieldCorrection
 from db.session import Base, engine, get_session
 from db.repo import upsert_permits, get_recent_permits, get_reservoir_trends
 from sqlalchemy import select, func
@@ -1335,6 +1335,7 @@ async def correct_field_name(request: Request, request_data: dict):
         status_no = request_data.get("status_no")
         wrong_field = request_data.get("wrong_field")
         correct_field = request_data.get("correct_field")
+        correct_reservoir = request_data.get("correct_reservoir")
         detail_url = request_data.get("detail_url")
         html_context = request_data.get("html_context")
         if_version = request_data.get("if_version")  # Optional optimistic concurrency control
@@ -1345,14 +1346,22 @@ async def correct_field_name(request: Request, request_data: dict):
         # If permit_id is not provided, try to find it by status_no (with tenant isolation)
         if not permit_id:
             with get_session() as session:
+                # First try with org_id filtering
                 permit = session.query(Permit).filter(
                     Permit.status_no == status_no,
                     Permit.org_id == org_id  # Tenant isolation
                 ).first()
+                
+                # If not found and using default_org, try without org_id filtering (for legacy data)
+                if not permit and org_id == 'default_org':
+                    permit = session.query(Permit).filter(
+                        Permit.status_no == status_no
+                    ).first()
+                
                 if permit:
                     permit_id = permit.id
                 else:
-                    raise HTTPException(status_code=404, detail=f"Permit with status {status_no} not found in your organization")
+                    raise HTTPException(status_code=404, detail=f"Permit with status {status_no} not found")
         
         # Update the permit's field name (simplified approach)
         with get_session() as session:
@@ -1362,6 +1371,12 @@ async def correct_field_name(request: Request, request_data: dict):
                 Permit.org_id == org_id
             ).first()
             
+            # If not found and using default_org, try without org_id filtering (for legacy data)
+            if not permit and org_id == 'default_org':
+                permit = session.query(Permit).filter(
+                    Permit.id == permit_id
+                ).first()
+            
             if not permit:
                 raise HTTPException(status_code=404, detail=f"Permit {permit_id} not found")
             
@@ -1370,17 +1385,38 @@ async def correct_field_name(request: Request, request_data: dict):
             session.commit()
             logger.info(f"Updated permit {status_no} (org: {org_id}) field name: '{wrong_field}' → '{correct_field}'")
         
-        # Try to record the correction for learning (optional)
+        # Record the correction for machine learning and future enhancement
         try:
-            field_learning.record_correction(
-                permit_id=permit_id,
-                status_no=status_no,
-                wrong_field=wrong_field,
-                correct_field=correct_field,
-                detail_url=detail_url,
-                html_context=html_context
-            )
-            logger.info(f"Recorded correction for learning: {status_no}")
+            with get_session() as learning_session:
+                # Determine pattern category based on wrong field characteristics
+                pattern_category = "unknown"
+                if any(pattern in wrong_field.lower() for pattern in ['commission staff', 'expresses no opinion']):
+                    pattern_category = "commission_comment"
+                elif any(pattern in wrong_field for pattern in ['/202', ':', 'AM', 'PM']):
+                    pattern_category = "timestamp"
+                elif len(wrong_field) > 100:
+                    pattern_category = "long_comment"
+                elif any(term in wrong_field.lower() for term in ['application', 'amend', 'surface']):
+                    pattern_category = "application_text"
+                else:
+                    pattern_category = "geological"
+                
+                correction = FieldCorrection(
+                    org_id=org_id,
+                    permit_id=permit_id,
+                    status_no=status_no,
+                    wrong_field_name=wrong_field,
+                    correct_field_name=correct_field,
+                    correct_reservoir_name=correct_reservoir,
+                    detail_url=detail_url,
+                    html_context=html_context or "",
+                    correction_type="field_name",
+                    pattern_category=pattern_category,
+                    created_by="manual_correction"
+                )
+                learning_session.add(correction)
+                learning_session.commit()
+                logger.info(f"Recorded field correction for learning: {status_no} ({pattern_category})")
         except Exception as e:
             logger.warning(f"Failed to record correction for learning: {e}")
             # Don't fail the whole request if learning fails

@@ -1593,6 +1593,7 @@ class PermitDashboard {
                     status_no: statusNo,
                     wrong_field: oldFieldName,
                     correct_field: correctFieldName,
+                    correct_reservoir: correctReservoir,
                     detail_url: permitUrl,
                     html_context: ""
                 })

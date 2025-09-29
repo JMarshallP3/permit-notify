@@ -4,11 +4,61 @@ from decimal import Decimal
 from urllib.parse import urljoin
 from lxml import html
 import re
+from db.session import get_session
+from db.models import FieldCorrection
 
 WS = re.compile(r"\s+")
 
 def norm(s: str | None) -> str:
     return WS.sub(" ", (s or "").strip()).lower()
+
+
+def apply_learned_corrections(field_name: str) -> str:
+    """
+    Apply learned corrections from the FieldCorrection table.
+    This allows the system to learn from manual corrections and improve over time.
+    """
+    if not field_name:
+        return field_name
+    
+    try:
+        with get_session() as session:
+            # Look for exact matches first
+            correction = session.query(FieldCorrection).filter(
+                FieldCorrection.wrong_field_name == field_name
+            ).first()
+            
+            if correction:
+                return correction.correct_field_name
+            
+            # Look for pattern matches for common error types
+            corrections = session.query(FieldCorrection).filter(
+                FieldCorrection.pattern_category.in_(['timestamp', 'commission_comment', 'application_text'])
+            ).all()
+            
+            for correction in corrections:
+                # Check if this field name matches known bad patterns
+                wrong_pattern = correction.wrong_field_name.lower()
+                field_lower = field_name.lower()
+                
+                # For timestamp patterns
+                if correction.pattern_category == 'timestamp' and re.search(r'\d{2}/\d{2}/\d{4}.*\d{1,2}:\d{2}:\d{2}', field_name):
+                    # This looks like a timestamp, likely incorrect
+                    continue  # Don't auto-correct timestamps, let manual review handle it
+                
+                # For commission comments
+                if correction.pattern_category == 'commission_comment' and 'commission staff' in field_lower:
+                    continue  # Don't auto-correct commission comments
+                
+                # For application text
+                if correction.pattern_category == 'application_text' and any(term in field_lower for term in ['application', 'amend']):
+                    continue  # Don't auto-correct application text
+            
+    except Exception as e:
+        # Don't fail parsing if learning lookup fails
+        pass
+    
+    return field_name
 
 def _xpath_first(tree, xp):
     res = tree.xpath(xp)
@@ -617,6 +667,10 @@ def parse_detail_page(html_text: str, detail_url: str) -> dict:
         h = a.get("href")
         if h:
             href = urljoin(detail_url, h)
+
+    # Apply learned corrections to improve field name accuracy
+    if field_name:
+        field_name = apply_learned_corrections(field_name)
 
     return {
         "horizontal_wellbore": horizontal_wellbore,
