@@ -1612,7 +1612,17 @@ class PermitDashboard {
             });
             
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                // Try to get detailed error message from server
+                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.detail) {
+                        errorMessage = `${errorMessage} - ${errorData.detail}`;
+                    }
+                } catch (e) {
+                    // If we can't parse the error response, use the basic message
+                }
+                throw new Error(errorMessage);
             }
             
             const result = await response.json();
@@ -4701,13 +4711,20 @@ class OptimizedDashboard extends PermitDashboard {
         try {
             const response = await fetch(`/api/v1/permits/count-by-field?field_name=${encodeURIComponent(fieldName)}&exclude_status_no=${excludeStatusNo}`);
             if (!response.ok) {
-                console.warn('Could not count permits with same field name');
+                console.error(`Count permits API error: ${response.status} ${response.statusText}`);
+                // Try to get error details
+                try {
+                    const errorData = await response.json();
+                    console.error('API error details:', errorData);
+                } catch (e) {
+                    console.error('Could not parse error response');
+                }
                 return 0;
             }
             const data = await response.json();
             return data.count || 0;
         } catch (error) {
-            console.warn('Error counting permits:', error);
+            console.error('Network error counting permits:', error);
             return 0;
         }
     }

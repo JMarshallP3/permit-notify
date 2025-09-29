@@ -1341,8 +1341,17 @@ async def correct_field_name(request: Request, request_data: dict):
         html_context = request_data.get("html_context")
         if_version = request_data.get("if_version")  # Optional optimistic concurrency control
         
+        # Debug logging for troubleshooting
+        logger.info(f"Field correction request: status_no='{status_no}', wrong_field='{wrong_field}', correct_field='{correct_field}'")
+        
         if not all([status_no, wrong_field, correct_field]):
-            raise HTTPException(status_code=400, detail="status_no, wrong_field, and correct_field are required")
+            missing_fields = []
+            if not status_no: missing_fields.append("status_no")
+            if not wrong_field: missing_fields.append("wrong_field") 
+            if not correct_field: missing_fields.append("correct_field")
+            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+            logger.error(f"HTTP 400 - {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
         
         # If permit_id is not provided, try to find it by status_no (with tenant isolation)
         if not permit_id:
