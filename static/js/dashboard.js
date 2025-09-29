@@ -133,7 +133,15 @@ class PermitDashboard {
             this.showLoading(true);
             
             const daysBack = this.daysBack || 7;
-            const response = await fetch(`/api/v1/permits?limit=25&days_back=${daysBack}`);
+            // Add cache-busting parameter to force fresh data
+            const cacheBuster = Date.now();
+            const response = await fetch(`/api/v1/permits?limit=25&days_back=${daysBack}&_cb=${cacheBuster}`, {
+                cache: 'no-cache',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
@@ -141,6 +149,13 @@ class PermitDashboard {
             const data = await response.json();
             this.permits = data.permits || [];
             this.lastUpdate = new Date();
+            
+            // Debug: Log county data to console
+            console.log('🏛️ County data check:', this.permits.map(p => ({ 
+                status_no: p.status_no, 
+                county: p.county, 
+                operator: p.operator_name?.substring(0, 30) 
+            })));
             
             this.applyFilters();
             this.updateStats();
@@ -4390,6 +4405,35 @@ class OptimizedDashboard extends PermitDashboard {
             }
         } catch (error) {
             console.error('Error refreshing from store:', error);
+        }
+    }
+
+    // Clear browser cache and force fresh data load
+    async clearCacheAndRefresh() {
+        try {
+            console.log('🧹 Clearing browser cache and forcing fresh data load...');
+            
+            // Clear IndexedDB cache if available
+            if (window.PermitStore && window.PermitStore.clearCache) {
+                await window.PermitStore.clearCache();
+            }
+            
+            // Clear localStorage cache
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (key.startsWith('permit') || key.startsWith('reservoir'))) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => localStorage.removeItem(key));
+            
+            // Force fresh API load
+            await this.loadPermits();
+            
+            console.log('✅ Cache cleared and data refreshed');
+        } catch (error) {
+            console.error('Error clearing cache:', error);
         }
     }
 
