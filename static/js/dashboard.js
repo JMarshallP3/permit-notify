@@ -1105,9 +1105,17 @@ class PermitDashboard {
     openReservoirManager() {
         try {
             console.log('Opening Reservoir Manager...');
+            
+            // MEMORY LEAK FIX: Check for existing modal and remove it first
+            const existingModal = document.querySelector('.reservoir-manager-modal');
+            if (existingModal) {
+                console.log('Removing existing reservoir manager modal');
+                existingModal.remove();
+            }
+            
             // Create the comprehensive reservoir management modal
             const modal = document.createElement('div');
-        modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+        modal.className = 'reservoir-manager-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         
         modal.innerHTML = `
@@ -1168,12 +1176,14 @@ class PermitDashboard {
         // Load the saved mappings tab by default
         this.switchReservoirTab('saved');
         
-        // Close modal on outside click
-        modal.addEventListener('click', (e) => {
+        // MEMORY LEAK FIX: Named function for proper cleanup
+        const closeOnOutsideClick = (e) => {
             if (e.target === modal) {
+                modal.removeEventListener('click', closeOnOutsideClick);
                 modal.remove();
             }
-        });
+        };
+        modal.addEventListener('click', closeOnOutsideClick);
         
         console.log('Reservoir Manager opened successfully');
         
@@ -1396,6 +1406,9 @@ class PermitDashboard {
             return;
         }
         
+        // PERFORMANCE FIX: Limit initial display to prevent 1000ms+ delays
+        const REVIEW_DISPLAY_LIMIT = 10;
+        
         // Flatten permits from review queue for individual display
         const individualPermits = [];
         this.reviewQueue.forEach(item => {
@@ -1408,10 +1421,13 @@ class PermitDashboard {
                 });
             });
         });
+        
+        const showAll = individualPermits.length <= REVIEW_DISPLAY_LIMIT;
+        const displayPermits = showAll ? individualPermits : individualPermits.slice(0, REVIEW_DISPLAY_LIMIT);
 
         contentDiv.innerHTML = `
             <div style="display: grid; gap: 1rem;">
-                ${individualPermits.map(permit => `
+                ${displayPermits.map(permit => `
                     <div style="padding: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--background-color);">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
                             <div style="flex: 1; min-width: 0;">
@@ -1460,8 +1476,68 @@ class PermitDashboard {
                         </div>
                     </div>
                 `).join('')}
+                ${!showAll ? `
+                    <div style="text-align: center; padding: 2rem; border-top: 1px solid var(--border-color); margin-top: 1rem;">
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            Showing ${displayPermits.length} of ${individualPermits.length} review items
+                        </p>
+                        <button onclick="window.dashboard.loadAllReviewItems()" 
+                                style="padding: 0.75rem 1.5rem; background: var(--gradient-primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem;">
+                            📋 Show All ${individualPermits.length} Items
+                        </button>
+                    </div>
+                ` : ''}
             </div>
         `;
+        
+        // Store reference for "Show All" functionality
+        this._allReviewItems = individualPermits;
+    }
+    
+    loadAllReviewItems() {
+        const contentDiv = document.getElementById('reservoirTabContent');
+        if (contentDiv && this._allReviewItems) {
+            // Show warning and render all items
+            const allItems = this._allReviewItems;
+            
+            contentDiv.innerHTML = `
+                <div style="display: grid; gap: 1rem;">
+                    <div style="text-align: center; padding: 1rem; background: var(--warning-bg); border: 1px solid var(--warning-color); border-radius: 0.5rem; color: var(--warning-text);">
+                        ⚠️ Showing all ${allItems.length} review items - this may impact performance
+                    </div>
+                    ${allItems.map(permit => `
+                        <div style="padding: 1rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--background-color);">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
+                                        ${permit.lease_name || 'Unknown Lease'}
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">
+                                        Status: ${permit.status_no} • ${permit.status_date ? new Date(permit.status_date).toLocaleDateString() : 'No date'}
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                        Current Field: <span style="color: var(--primary-color); font-weight: 500;">${permit.currentFieldName}</span>
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                                        Suggested: <span style="color: #10b981; font-weight: 500;">${permit.suggestedReservoir}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button onclick="window.dashboard.acceptCorrectReservoir('${permit.currentFieldName.replace(/'/g, "\\'")}', '${permit.suggestedReservoir.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                                        style="padding: 0.5rem 0.75rem; background: #10b981; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem; white-space: nowrap;">
+                                    ✅ Accept as Correct
+                                </button>
+                                <button onclick="window.dashboard.removeSinglePermitFromReview('${permit.currentFieldName.replace(/'/g, "\\'")}', '${permit.status_no}')" 
+                                        style="padding: 0.5rem 0.75rem; background: var(--error-color); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.75rem;">
+                                    ✕ Remove
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
     }
     
     loadFlaggedPermitsContent(contentDiv) {
