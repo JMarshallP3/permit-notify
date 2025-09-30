@@ -1499,10 +1499,12 @@ async def delete_permit(status_no: str, request: Request):
     Delete a permit from the database (typically used for injection wells).
     This is a permanent deletion and cannot be undone.
     """
+    print(f"🚨 DELETE ENDPOINT REACHED: {status_no}")
     try:
         # Get org_id for tenant isolation
         org_id = request.query_params.get('org_id') or request.headers.get('X-Org-ID') or 'default_org'
         
+        print(f"🗑️ DELETE REQUEST: status_no='{status_no}', org_id='{org_id}'")
         logger.error(f"🗑️ DELETE REQUEST: status_no='{status_no}', org_id='{org_id}'")
         
         with get_session() as session:
@@ -1522,6 +1524,7 @@ async def delete_permit(status_no: str, request: Request):
                 raise HTTPException(status_code=404, detail=f"Permit {status_no} not found")
             
             # Log the deletion for audit purposes
+            print(f"🎯 FOUND PERMIT TO DELETE: {status_no} (org: {org_id}) - {permit.operator_name} - {permit.lease_name} - ID: {permit.id}")
             logger.error(f"🎯 FOUND PERMIT TO DELETE: {status_no} (org: {org_id}) - {permit.operator_name} - {permit.lease_name} - ID: {permit.id}")
             
             # Store permit info before deletion
@@ -1533,19 +1536,21 @@ async def delete_permit(status_no: str, request: Request):
             }
             
             # Delete the permit
-            logger.error(f"🗑️ DELETING PERMIT: {status_no} from database...")
+            print(f"🗑️ DELETING PERMIT: {status_no} from database...")
             session.delete(permit)
-            logger.error(f"🔄 COMMITTING TRANSACTION...")
+            print(f"🔄 COMMITTING TRANSACTION...")
             session.commit()
-            logger.error(f"✅ TRANSACTION COMMITTED")
+            print(f"✅ TRANSACTION COMMITTED")
             
             # Verify deletion by trying to find the permit again
-            logger.error(f"🔍 VERIFYING DELETION...")
+            print(f"🔍 VERIFYING DELETION...")
             verification = session.query(Permit).filter(Permit.status_no == status_no).first()
             if verification:
+                print(f"❌ DELETION FAILED: Permit {status_no} still exists after deletion! Found permit ID: {verification.id}")
                 logger.error(f"❌ DELETION FAILED: Permit {status_no} still exists after deletion! Found permit ID: {verification.id}")
                 raise HTTPException(status_code=500, detail="Deletion failed - permit still exists")
             else:
+                print(f"✅ DELETION VERIFIED: Permit {status_no} successfully removed from database")
                 logger.error(f"✅ DELETION VERIFIED: Permit {status_no} successfully removed from database")
             
             return {
@@ -1559,6 +1564,7 @@ async def delete_permit(status_no: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"🚨 DELETE EXCEPTION: {e}")
         logger.error(f"Delete permit error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete permit: {str(e)}")
 

@@ -4655,15 +4655,15 @@ class OptimizedDashboard extends PermitDashboard {
             banner.innerHTML = `
                 <div style="background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
                     <div style="font-weight: 600; font-size: 0.875rem;">🚫 Injection Well Detected</div>
-                    <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Purpose: ${permit.filing_purpose || 'Unknown'}</div>
+                    <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Purpose: ${permit.filing_purpose || 'Unknown'} • Click dismiss to hide</div>
                     <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
-                        <button onclick="if(window.dashboard && window.dashboard.removeInjectionWell) window.dashboard.removeInjectionWell(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
-                                style="background: #dc2626; border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
-                            🗑️ Remove from Database
-                        </button>
                         <button onclick="if(window.dashboard && window.dashboard.dismissPermit) window.dashboard.dismissPermit('${permit.status_no}')" 
+                                style="background: #dc2626; border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
+                            ✕ Dismiss Injection Well
+                        </button>
+                        <button onclick="if(window.dashboard && window.dashboard.openManualMappingForPermit) window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
                                 style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
-                            ✕ Keep but Dismiss
+                            ⚙️ Not Injection Well
                         </button>
                     </div>
                 </div>
