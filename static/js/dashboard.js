@@ -1802,6 +1802,7 @@ class PermitDashboard {
     }
     
     async removeInjectionWell(permit) {
+        alert(`DEBUG: removeInjectionWell called for permit ${permit.status_no}`);
         console.log('removeInjectionWell called with permit:', permit);
         
         if (!confirm(`Are you sure you want to permanently delete this injection well from the database?\n\nPermit: ${permit.status_no}\nOperator: ${permit.operator_name}\nLease: ${permit.lease_name}\n\nThis action cannot be undone.`)) {
