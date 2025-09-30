@@ -137,9 +137,15 @@ class ScoutWidget {
             
             if (data.success) {
                 this.insights = data.insights || [];
+                console.log('📊 Demo insights loaded:', this.insights.length, 'insights');
+                console.log('📊 First insight sample:', this.insights[0]);
+                
                 this.renderInsights();
                 this.showSuccess('🚀 Scout v2.2 Demo Mode Active! Featuring multi-source intelligence, breakout detection, and deep analytics.');
-                console.log('📊 Loaded demo insights:', this.insights);
+                
+                // Double-check the container after rendering
+                const container = document.getElementById('scoutInsightsContainer');
+                console.log('📊 Container after render:', container ? container.innerHTML.length + ' chars' : 'not found');
             } else {
                 throw new Error(data.detail || 'Demo insights failed');
             }
@@ -163,69 +169,84 @@ class ScoutWidget {
     }
 
     renderInsightCard(insight) {
-        const analyticsChips = this.renderAnalyticsChips(insight.analytics);
-        const sourceLinks = insight.source_urls.map(source => 
-            `<a href="${source.url}" target="_blank" rel="noopener">${source.label}</a>`
-        ).join(' | ');
+        try {
+            const analyticsChips = this.renderAnalyticsChips(insight.analytics || {});
+            const sourceLinks = (insight.source_urls || []).map(source => 
+                `<a href="${source.url}" target="_blank" rel="noopener">${source.label}</a>`
+            ).join(' | ');
 
-        const stateClass = insight.user_state === 'kept' ? 'insight-kept' : 
-                          insight.user_state === 'dismissed' ? 'insight-dismissed' : '';
+            const stateClass = insight.user_state === 'kept' ? 'insight-kept' : 
+                              insight.user_state === 'dismissed' ? 'insight-dismissed' : '';
 
-        return `
-            <div class="insight-card ${stateClass}" data-insight-id="${insight.id}">
-                ${insight.user_state === 'kept' ? '<div class="insight-badge kept-badge">Kept</div>' : ''}
-                
-                <div class="insight-header">
-                    <h3 class="insight-title">${insight.title}</h3>
-                    <div class="insight-actions">
-                        ${this.renderInsightActions(insight)}
-                    </div>
-                </div>
-
-                <div class="insight-content">
-                    <div class="insight-section">
-                        <strong>What happened:</strong>
-                        <ul>
-                            ${insight.what_happened.map(item => `<li>${item}</li>`).join('')}
-                        </ul>
-                    </div>
-
-                    <div class="insight-section">
-                        <strong>Why it matters:</strong>
-                        <ul>
-                            ${insight.why_it_matters.map(item => `<li>${item}</li>`).join('')}
-                        </ul>
-                    </div>
-
-                    <div class="insight-meta">
-                        <div class="confidence-section">
-                            <strong>Confidence:</strong> 
-                            <span class="confidence-${insight.confidence}">${insight.confidence.toUpperCase()}</span>
-                            — ${insight.confidence_reasons.join(', ')}
+            return `
+                <div class="insight-card ${stateClass}" data-insight-id="${insight.id}">
+                    ${insight.user_state === 'kept' ? '<div class="insight-badge kept-badge">Kept</div>' : ''}
+                    
+                    <div class="insight-header">
+                        <h3 class="insight-title">${insight.title || 'Untitled Insight'}</h3>
+                        <div class="insight-actions">
+                            ${this.renderInsightActions(insight)}
                         </div>
+                    </div>
 
-                        ${analyticsChips ? `<div class="analytics-chips">${analyticsChips}</div>` : ''}
-
-                        <div class="next-checks">
-                            <strong>Next checks:</strong>
+                    <div class="insight-content">
+                        <div class="insight-section">
+                            <strong>What happened:</strong>
                             <ul>
-                                ${insight.next_checks.map(check => `<li>${check}</li>`).join('')}
+                                ${(insight.what_happened || []).map(item => `<li>${item}</li>`).join('')}
                             </ul>
                         </div>
 
-                        <div class="sources">
-                            <strong>Sources:</strong> ${sourceLinks}
+                        <div class="insight-section">
+                            <strong>Why it matters:</strong>
+                            <ul>
+                                ${(insight.why_it_matters || []).map(item => `<li>${item}</li>`).join('')}
+                            </ul>
+                        </div>
+
+                        <div class="insight-meta">
+                            <div class="confidence-section">
+                                <strong>Confidence:</strong> 
+                                <span class="confidence-${insight.confidence || 'low'}">${(insight.confidence || 'low').toUpperCase()}</span>
+                                — ${(insight.confidence_reasons || []).join(', ')}
+                            </div>
+
+                            ${analyticsChips ? `<div class="analytics-chips">${analyticsChips}</div>` : ''}
+
+                            <div class="next-checks">
+                                <strong>Next checks:</strong>
+                                <ul>
+                                    ${(insight.next_checks || []).map(check => `<li>${check}</li>`).join('')}
+                                </ul>
+                            </div>
+
+                            <div class="sources">
+                                <strong>Sources:</strong> ${sourceLinks || 'No sources available'}
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                ${insight.dismiss_reason ? `
-                    <div class="dismiss-reason">
-                        <strong>Dismiss reason:</strong> ${insight.dismiss_reason}
+                    ${insight.dismiss_reason ? `
+                        <div class="dismiss-reason">
+                            <strong>Dismiss reason:</strong> ${insight.dismiss_reason}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        } catch (error) {
+            console.error('Error rendering insight card:', error, insight);
+            return `
+                <div class="insight-card">
+                    <div class="insight-header">
+                        <h3 class="insight-title">Error Rendering Insight</h3>
                     </div>
-                ` : ''}
-            </div>
-        `;
+                    <div class="insight-content">
+                        <p>There was an error rendering this insight. Check console for details.</p>
+                        <pre>${JSON.stringify(insight, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+        }
     }
 
     renderInsightActions(insight) {

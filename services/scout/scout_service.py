@@ -118,7 +118,7 @@ class ScoutService:
         try:
             # Crawl MRF
             async with MRFCrawler() as crawler:
-                crawl_results = await crawler.crawl_recent_discussions(max_pages=2)
+                crawl_results = await crawler.crawl_recent(max_items=10)
                 results["crawled_discussions"] = len(crawl_results)
                 
                 if not crawl_results:
