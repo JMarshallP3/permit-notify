@@ -4579,27 +4579,134 @@ class OptimizedDashboard extends PermitDashboard {
 
     // Modal functions for desktop and mobile
     showTopReservoirs() {
-        try {
-            // Create and show top reservoirs modal
-            const modal = this.createModal('Top Reservoirs', this.generateTopReservoirsContent());
-            document.body.appendChild(modal);
-            modal.style.display = 'flex';
-        } catch (error) {
-            console.error('Error showing top reservoirs:', error);
-            this.showSafeMessage('Error loading top reservoirs', 'error');
-        }
+        console.log('📊 Opening Top Reservoirs modal...');
+        
+        // Create simple mobile modal for Top Reservoirs
+        const modal = document.createElement('div');
+        modal.className = 'mobile-modal-overlay';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem;';
+        
+        // Generate reservoir data
+        const reservoirCounts = {};
+        this.permits.forEach(permit => {
+            if (permit.field_name && permit.field_name !== 'Unknown') {
+                const reservoir = this.extractReservoir(permit.field_name);
+                if (reservoir && reservoir !== 'UNKNOWN') {
+                    reservoirCounts[reservoir] = (reservoirCounts[reservoir] || 0) + 1;
+                }
+            }
+        });
+
+        const sortedReservoirs = Object.entries(reservoirCounts)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10);
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; position: relative;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: white; border-radius: 1rem 1rem 0 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">📊 Top Reservoirs</h2>
+                        <button onclick="this.closest('.mobile-modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
+                    </div>
+                </div>
+                <div style="padding: 1.5rem;">
+                    ${sortedReservoirs.length === 0 ? 
+                        '<div style="color: #6b7280; text-align: center; padding: 2rem;">No reservoir data available</div>' :
+                        sortedReservoirs.map(([reservoir, count], index) => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #e5e7eb; cursor: pointer;" onclick="console.log('Clicked reservoir: ${reservoir}')">
+                                <div>
+                                    <div style="font-weight: 600; color: #1f2937; font-size: 0.9rem;">${index + 1}. ${reservoir}</div>
+                                </div>
+                                <div style="font-weight: 700; color: #3b82f6; font-size: 1rem;">${count}</div>
+                            </div>
+                        `).join('')
+                    }
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
     }
 
     showQuickStats() {
-        try {
-            // Create and show quick stats modal
-            const modal = this.createModal('Quick Stats', this.generateQuickStatsContent());
-            document.body.appendChild(modal);
-            modal.style.display = 'flex';
-        } catch (error) {
-            console.error('Error showing quick stats:', error);
-            this.showSafeMessage('Error loading quick stats', 'error');
-        }
+        console.log('📈 Opening Quick Stats modal...');
+        
+        // Create simple mobile modal for Quick Stats
+        const modal = document.createElement('div');
+        modal.className = 'mobile-modal-overlay';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem;';
+        
+        // Calculate stats
+        const totalPermits = this.permits.length;
+        const todayPermits = this.permits.filter(permit => this.isPermitFromToday(permit)).length;
+        const dismissedCount = this.dismissedPermits.size;
+        const activePermits = totalPermits - dismissedCount;
+        
+        // Count by purpose
+        const purposeCounts = {};
+        this.permits.forEach(permit => {
+            const purpose = permit.filing_purpose || 'Unknown';
+            purposeCounts[purpose] = (purposeCounts[purpose] || 0) + 1;
+        });
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; position: relative;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: white; border-radius: 1rem 1rem 0 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">📈 Quick Stats</h2>
+                        <button onclick="this.closest('.mobile-modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
+                    </div>
+                </div>
+                <div style="padding: 1.5rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #3b82f6;">${totalPermits}</div>
+                            <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">Total Permits</div>
+                        </div>
+                        <div style="background: #f0fdf4; padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #10b981;">${todayPermits}</div>
+                            <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">Today</div>
+                        </div>
+                        <div style="background: #fef3c7; padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">${activePermits}</div>
+                            <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">Active</div>
+                        </div>
+                        <div style="background: #fee2e2; padding: 1rem; border-radius: 0.5rem; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #ef4444;">${dismissedCount}</div>
+                            <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">Dismissed</div>
+                        </div>
+                    </div>
+                    
+                    <h3 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600;">By Purpose</h3>
+                    ${Object.entries(purposeCounts)
+                        .sort(([,a], [,b]) => b - a)
+                        .slice(0, 5)
+                        .map(([purpose, count]) => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #e5e7eb;">
+                                <span style="font-size: 0.8rem; color: #374151;">${purpose}</span>
+                                <span style="font-weight: 600; color: #3b82f6;">${count}</span>
+                            </div>
+                        `).join('')
+                    }
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
     }
 
     generateTopReservoirsContent() {
