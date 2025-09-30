@@ -1503,7 +1503,7 @@ async def delete_permit(status_no: str, request: Request):
         # Get org_id for tenant isolation
         org_id = request.query_params.get('org_id') or request.headers.get('X-Org-ID') or 'default_org'
         
-        logger.info(f"Delete permit request: status_no='{status_no}', org_id='{org_id}'")
+        logger.info(f"🗑️ DELETE REQUEST: status_no='{status_no}', org_id='{org_id}'")
         
         with get_session() as session:
             # Find the permit with tenant isolation
@@ -1522,7 +1522,7 @@ async def delete_permit(status_no: str, request: Request):
                 raise HTTPException(status_code=404, detail=f"Permit {status_no} not found")
             
             # Log the deletion for audit purposes
-            logger.info(f"Deleting permit: {status_no} (org: {org_id}) - {permit.operator_name} - {permit.lease_name}")
+            logger.info(f"🎯 FOUND PERMIT TO DELETE: {status_no} (org: {org_id}) - {permit.operator_name} - {permit.lease_name} - ID: {permit.id}")
             
             # Store permit info before deletion
             permit_info = {
@@ -1533,16 +1533,20 @@ async def delete_permit(status_no: str, request: Request):
             }
             
             # Delete the permit
+            logger.info(f"🗑️ DELETING PERMIT: {status_no} from database...")
             session.delete(permit)
+            logger.info(f"🔄 COMMITTING TRANSACTION...")
             session.commit()
+            logger.info(f"✅ TRANSACTION COMMITTED")
             
             # Verify deletion by trying to find the permit again
+            logger.info(f"🔍 VERIFYING DELETION...")
             verification = session.query(Permit).filter(Permit.status_no == status_no).first()
             if verification:
-                logger.error(f"DELETION FAILED: Permit {status_no} still exists after deletion!")
+                logger.error(f"❌ DELETION FAILED: Permit {status_no} still exists after deletion! Found permit ID: {verification.id}")
                 raise HTTPException(status_code=500, detail="Deletion failed - permit still exists")
             else:
-                logger.info(f"DELETION VERIFIED: Permit {status_no} successfully removed from database")
+                logger.info(f"✅ DELETION VERIFIED: Permit {status_no} successfully removed from database")
             
             return {
                 "success": True,
