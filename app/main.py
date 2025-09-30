@@ -1524,16 +1524,32 @@ async def delete_permit(status_no: str, request: Request):
             # Log the deletion for audit purposes
             logger.info(f"Deleting permit: {status_no} (org: {org_id}) - {permit.operator_name} - {permit.lease_name}")
             
+            # Store permit info before deletion
+            permit_info = {
+                "status_no": permit.status_no,
+                "operator_name": permit.operator_name,
+                "lease_name": permit.lease_name,
+                "id": permit.id
+            }
+            
             # Delete the permit
             session.delete(permit)
             session.commit()
             
+            # Verify deletion by trying to find the permit again
+            verification = session.query(Permit).filter(Permit.status_no == status_no).first()
+            if verification:
+                logger.error(f"DELETION FAILED: Permit {status_no} still exists after deletion!")
+                raise HTTPException(status_code=500, detail="Deletion failed - permit still exists")
+            else:
+                logger.info(f"DELETION VERIFIED: Permit {status_no} successfully removed from database")
+            
             return {
                 "success": True,
                 "message": f"Permit {status_no} deleted successfully",
-                "status_no": status_no,
-                "operator_name": permit.operator_name,
-                "lease_name": permit.lease_name
+                "status_no": permit_info["status_no"],
+                "operator_name": permit_info["operator_name"],
+                "lease_name": permit_info["lease_name"]
             }
             
     except HTTPException:

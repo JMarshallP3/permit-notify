@@ -1840,8 +1840,21 @@ class PermitDashboard {
                 }
             }, 4000);
             
-            // Refresh permits to remove the deleted one
-            this.loadPermits();
+            // Remove the deleted permit from local data immediately
+            const permitIndex = this.permits.findIndex(p => p.status_no === permit.status_no);
+            if (permitIndex !== -1) {
+                console.log(`Removing permit ${permit.status_no} from local data at index ${permitIndex}`);
+                this.permits.splice(permitIndex, 1);
+                this.applyFilters(); // Re-render without the deleted permit
+            } else {
+                console.warn(`Permit ${permit.status_no} not found in local data for removal`);
+            }
+            
+            // Also refresh from server to ensure consistency
+            setTimeout(() => {
+                console.log('Refreshing permits from server after deletion...');
+                this.loadPermits();
+            }, 1000);
             
         } catch (error) {
             console.error('Error removing injection well:', error);
