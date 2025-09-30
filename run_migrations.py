@@ -13,7 +13,7 @@ def run_migrations():
     
     # Check if DATABASE_URL is set
     if not os.getenv('DATABASE_URL'):
-        print("❌ DATABASE_URL environment variable not set")
+        print("ERROR: DATABASE_URL environment variable not set")
         print("This script should be run in the production environment")
         return False
     
@@ -22,13 +22,13 @@ def run_migrations():
         alembic_cfg = Config("alembic.ini")
         
         # Run migrations
-        print("🔄 Running database migrations...")
+        print("Running database migrations...")
         command.upgrade(alembic_cfg, "head")
-        print("✅ Migrations completed successfully!")
+        print("SUCCESS: Migrations completed successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Migration failed: {e}")
+        print(f"ERROR: Migration failed: {e}")
         return False
 
 if __name__ == "__main__":
