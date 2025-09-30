@@ -1802,17 +1802,26 @@ class PermitDashboard {
     }
     
     async removeInjectionWell(permit) {
+        console.log('removeInjectionWell called with permit:', permit);
+        
         if (!confirm(`Are you sure you want to permanently delete this injection well from the database?\n\nPermit: ${permit.status_no}\nOperator: ${permit.operator_name}\nLease: ${permit.lease_name}\n\nThis action cannot be undone.`)) {
+            console.log('User cancelled deletion');
             return;
         }
         
+        console.log(`Starting deletion process for permit ${permit.status_no}`);
+        
         try {
+            console.log(`Sending DELETE request to /api/v1/permits/${permit.status_no}`);
+            
             const response = await fetch(`/api/v1/permits/${permit.status_no}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
                 }
             });
+            
+            console.log(`DELETE response status: ${response.status} ${response.statusText}`);
             
             if (!response.ok) {
                 let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
@@ -1826,6 +1835,9 @@ class PermitDashboard {
                 }
                 throw new Error(errorMessage);
             }
+            
+            const responseData = await response.json();
+            console.log('DELETE response data:', responseData);
             
             // Show success message
             const successMsg = document.createElement('div');
@@ -1841,13 +1853,20 @@ class PermitDashboard {
             }, 4000);
             
             // Remove the deleted permit from local data immediately
+            console.log(`Current permits array length: ${this.permits.length}`);
+            console.log(`Looking for permit ${permit.status_no} in local data...`);
+            
             const permitIndex = this.permits.findIndex(p => p.status_no === permit.status_no);
             if (permitIndex !== -1) {
-                console.log(`Removing permit ${permit.status_no} from local data at index ${permitIndex}`);
+                console.log(`Found permit ${permit.status_no} at index ${permitIndex}, removing from local data`);
+                console.log(`Permit data:`, this.permits[permitIndex]);
                 this.permits.splice(permitIndex, 1);
+                console.log(`New permits array length: ${this.permits.length}`);
+                console.log('Calling applyFilters() to re-render...');
                 this.applyFilters(); // Re-render without the deleted permit
             } else {
                 console.warn(`Permit ${permit.status_no} not found in local data for removal`);
+                console.log('All permit status_no values in local data:', this.permits.map(p => p.status_no));
             }
             
             // Also refresh from server to ensure consistency
