@@ -157,6 +157,27 @@ class ScoutWidget {
         }
     }
     
+    async testDatabase() {
+        try {
+            console.log('🔍 Testing database connection...');
+            
+            const response = await fetch('/api/v1/scout/test-db');
+            const result = await response.json();
+            
+            console.log('📊 Database test result:', result);
+            
+            if (result.success) {
+                this.showSuccess(`✅ Database Connected! Found ${result.existing_tables.length} tables: ${result.existing_tables.join(', ')}`);
+            } else {
+                this.showError(`❌ Database test failed: ${result.error}`);
+            }
+            
+        } catch (error) {
+            console.error('❌ Database test error:', error);
+            this.showError(`Error testing database: ${error}`);
+        }
+    }
+
     async setupDatabase() {
         try {
             this.showInfo('🔧 Setting up Scout v2.2 database tables... This may take 30-60 seconds.');
@@ -582,6 +603,11 @@ class ScoutWidget {
                     <button onclick="scoutWidget.loadDemoInsights()" 
                             style="background-color: #6f42c1; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
                         🚀 Demo v2.2
+                    </button>
+                    
+                    <button onclick="scoutWidget.testDatabase()" 
+                            style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                        🔍 Test DB
                     </button>
                     
                     <button onclick="scoutWidget.setupDatabase()" 

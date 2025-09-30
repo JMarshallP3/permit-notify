@@ -379,6 +379,45 @@ async def get_scout_stats(org_id: str = Query("default_org")):
         else:
             raise HTTPException(status_code=500, detail=f"Failed to get stats: {e}")
 
+@router.get("/test-db")
+async def test_database_connection():
+    """Test basic database connectivity"""
+    try:
+        import os
+        from sqlalchemy import create_engine, text
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"success": False, "error": "No DATABASE_URL"}
+        
+        engine = create_engine(database_url)
+        
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1 as test"))
+            test_value = result.fetchone()[0]
+            
+            # Check existing tables
+            tables_result = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """))
+            tables = [row[0] for row in tables_result]
+            
+            return {
+                "success": True,
+                "database_connected": test_value == 1,
+                "existing_tables": tables,
+                "database_url_set": bool(database_url)
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
 @router.post("/setup")
 async def setup_scout_tables():
     """Manually create Scout v2.2 database tables using raw SQL"""
@@ -579,10 +618,12 @@ async def setup_scout_tables():
                 
     except Exception as e:
         logger.error(f"❌ ERROR creating Scout tables: {e}", exc_info=True)
+        # Don't raise HTTPException, just return error response
         return {
             "success": False,
             "message": f"Setup failed: {str(e)}",
-            "error": str(e)
+            "error": str(e),
+            "error_type": type(e).__name__
         }
 
 @router.post("/crawl/all")
