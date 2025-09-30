@@ -436,7 +436,9 @@ async def get_permits_for_trends(
         logger.info(f"Fetching {limit} permits for trend analysis")
         
         with get_session() as session:
-            permits = session.query(Permit).order_by(
+            permits = session.query(Permit).filter(
+                Permit.is_injection_well != True  # Exclude flagged injection wells from trend analysis
+            ).order_by(
                 Permit.status_date.desc(),
                 Permit.created_at.desc()
             ).limit(limit).all()
@@ -1313,6 +1315,54 @@ async def process_parsing_queue():
             "success": False,
             "message": f"Failed to process parsing queue: {str(e)}"
         }
+
+@app.post("/api/v1/permits/{status_no}/flag-injection-well")
+async def flag_injection_well(status_no: str, request: Request):
+    """
+    Flag a permit as an injection well (excludes it from trend analysis).
+    This is typically called when dismissing an injection well.
+    """
+    try:
+        # Get org_id for tenant isolation
+        org_id = request.query_params.get('org_id') or request.headers.get('X-Org-ID') or 'default_org'
+        
+        logger.info(f"🚫 Flagging injection well: {status_no} (org: {org_id})")
+        
+        with get_session() as session:
+            # Find the permit with tenant isolation
+            permit = session.query(Permit).filter(
+                Permit.status_no == status_no,
+                Permit.org_id == org_id
+            ).first()
+            
+            # If not found with org_id, try without for legacy data
+            if not permit and org_id == 'default_org':
+                permit = session.query(Permit).filter(
+                    Permit.status_no == status_no
+                ).first()
+            
+            if not permit:
+                raise HTTPException(status_code=404, detail=f"Permit {status_no} not found")
+            
+            # Flag as injection well
+            permit.is_injection_well = True
+            session.commit()
+            
+            logger.info(f"✅ Flagged permit {status_no} as injection well - will be excluded from trend analysis")
+            
+            return {
+                "success": True,
+                "message": f"Permit {status_no} flagged as injection well",
+                "status_no": permit.status_no,
+                "operator_name": permit.operator_name,
+                "lease_name": permit.lease_name
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Flag injection well error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to flag injection well: {str(e)}")
 
 @app.post("/api/v1/field-corrections/correct")
 async def correct_field_name(request: Request, request_data: dict):

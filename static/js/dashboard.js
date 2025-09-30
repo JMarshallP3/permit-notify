@@ -542,10 +542,37 @@ class PermitDashboard {
         });
     }
     
-    dismissPermit(permitId) {
+    async dismissPermit(permitId) {
         console.log('Dismissing permit:', permitId);
         console.log('showDismissed before:', this.showDismissed);
         console.log('dismissedPermits before:', [...this.dismissedPermits]);
+        
+        // Check if this is an injection well
+        const permit = this.permits.find(p => p.status_no === permitId);
+        const isInjectionWell = permit && this.isInjectionWell(permit);
+        
+        // If it's an injection well, flag it in the database
+        if (isInjectionWell) {
+            try {
+                console.log('🚫 Flagging injection well in database:', permitId);
+                const response = await fetch(`/api/v1/permits/${permitId}/flag-injection-well`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Successfully flagged injection well:', result);
+                } else {
+                    console.error('❌ Failed to flag injection well:', response.status, response.statusText);
+                }
+            } catch (error) {
+                console.error('❌ Error flagging injection well:', error);
+            }
+        }
         
         this.dismissedPermits.add(permitId);
         
