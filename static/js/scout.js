@@ -38,6 +38,33 @@ class ScoutWidget {
         }
     }
 
+    async testCrawl() {
+        try {
+            this.showInfo('Starting MRF crawl... This may take 30-60 seconds.');
+            
+            const response = await fetch('/api/v1/scout/crawl/mrf?org_id=default_org', {
+                method: 'POST'
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess(`Crawl completed! ${data.message}`);
+                // Reload insights to show new ones
+                await this.loadInsights();
+            } else {
+                throw new Error(data.detail || 'Crawl failed');
+            }
+        } catch (error) {
+            console.error('Error during test crawl:', error);
+            this.showError(`Crawl failed: ${error.message}`);
+        }
+    }
+
     renderInsights() {
         const container = document.getElementById('scoutInsightsContainer');
         if (!container) return;
@@ -362,6 +389,11 @@ class ScoutWidget {
                                onchange="scoutWidget.updateFilter('breakouts_only', this.checked)">
                         Breakouts only
                     </label>
+                    
+                    <button onclick="scoutWidget.testCrawl()" 
+                            style="background-color: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px;">
+                        🕷️ Test Crawl MRF
+                    </button>
                 </div>
             </div>
         `;
@@ -401,6 +433,30 @@ class ScoutWidget {
                     <button onclick="scoutWidget.loadInsights()" class="btn btn-sm btn-primary">
                         Try Again
                     </button>
+                </div>
+            `;
+        }
+    }
+
+    showInfo(message) {
+        const container = document.getElementById('scoutInsightsContainer');
+        if (container) {
+            container.innerHTML = `
+                <div class="info-state">
+                    <div style="color: #3b82f6; font-size: 1.5rem; margin-bottom: 0.5rem;">ℹ️</div>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+    }
+
+    showSuccess(message) {
+        const container = document.getElementById('scoutInsightsContainer');
+        if (container) {
+            container.innerHTML = `
+                <div class="success-state">
+                    <div style="color: #10b981; font-size: 1.5rem; margin-bottom: 0.5rem;">✅</div>
+                    <p>${message}</p>
                 </div>
             `;
         }
