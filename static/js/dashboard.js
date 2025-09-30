@@ -359,9 +359,9 @@ class PermitDashboard {
         if (dateStr.includes('-') && dateStr.length === 10) {
             const parts = dateStr.split('-');
             if (parts.length === 3 && parts[0].length === 2) {
-                // Assume MM-DD-YYYY format
+                // Assume MM-DD-YYYY format - use Date constructor with individual components to avoid timezone issues
                 const [month, day, year] = parts;
-                permitDate = new Date(`${year}-${month}-${day}`);
+                permitDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day)); // Month is 0-indexed in JS Date
             } else {
                 permitDate = new Date(dateStr);
             }
