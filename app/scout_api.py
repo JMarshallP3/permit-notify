@@ -12,7 +12,7 @@ from pydantic import BaseModel
 import json
 import uuid
 
-from db.database import get_session
+from db.session import get_session
 from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState, InsightUserState, ConfidenceLevel
 
 router = APIRouter(prefix="/api/v1/scout", tags=["scout"])

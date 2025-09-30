@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 import random
 
-from db.database import get_session
+from db.session import get_session
 from db.scout_models import Signal, ClaimType
 
 logger = logging.getLogger(__name__)

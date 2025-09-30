@@ -5,13 +5,12 @@ Additive models for Scout insights system - does not modify existing permit/comp
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON, Enum, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import uuid
 import enum
 
-Base = declarative_base()
+from db.session import Base
 
 class ClaimType(enum.Enum):
     CONFIRMED = "confirmed"

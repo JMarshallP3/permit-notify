@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 
-from db.database import get_session
+from db.session import get_session
 from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState, InsightUserState
 from services.scout.web_crawler import WebCrawler
 from services.scout.analytics import SignalMatcher

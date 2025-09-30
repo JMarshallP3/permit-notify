@@ -12,7 +12,7 @@ import statistics
 import re
 from collections import defaultdict, Counter
 
-from db.database import get_session
+from db.session import get_session
 from db.models import Permit
 from db.scout_models import Signal, ScoutInsight, ConfidenceLevel
 import json
