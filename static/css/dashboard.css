@@ -1323,9 +1323,182 @@ body {
     transform: rotate(180deg);
   }
 
-  body.dark-mode .dark-mode-icon::before {
-    content: '☀️';
+  /* Dark mode styles */
+  body.dark-mode {
+    background-color: #1a1a1a;
+    color: #e5e5e5;
   }
+
+  body.dark-mode .card {
+    background-color: #2d2d2d;
+    border-color: #404040;
+  }
+
+  body.dark-mode .permit-card {
+    background-color: #2d2d2d;
+    border-color: #404040;
+  }
+
+  body.dark-mode .mobile-top-nav {
+    background-color: #2d2d2d;
+    border-color: #404040;
+  }
+
+  body.dark-mode .modal-content {
+    background-color: #2d2d2d;
+    color: #e5e5e5;
+  }
+
+  /* iPhone-specific optimizations - smaller fonts and compressed layout */
+  @media only screen and (max-width: 480px) {
+    /* Compress overall layout */
+    .container {
+      padding: 0.5rem;
+      gap: 0.75rem;
+    }
+
+    /* Smaller fonts for iPhone */
+    body {
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+    }
+
+    h3 {
+      font-size: 1.1rem;
+    }
+
+    /* Compress permit cards */
+    .permit-card {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0.5rem;
+    }
+
+    .permit-card h3 {
+      font-size: 1rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .permit-card p {
+      font-size: 0.8rem;
+      margin-bottom: 0.25rem;
+      line-height: 1.2;
+    }
+
+    /* Compress card metadata */
+    .permit-meta {
+      font-size: 0.75rem;
+      gap: 0.5rem;
+    }
+
+    /* Smaller buttons */
+    .btn {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      min-height: 36px;
+    }
+
+    .btn-sm {
+      padding: 0.375rem 0.5rem;
+      font-size: 0.7rem;
+      min-height: 32px;
+    }
+
+    /* Compress mobile navigation */
+    .mobile-top-nav {
+      padding: 0.5rem 0;
+    }
+
+    .mobile-btn {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      min-height: 36px;
+      min-width: 80px;
+    }
+
+    /* Compress filters */
+    .filter-input {
+      padding: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    .filter-label {
+      font-size: 0.8rem;
+      margin-bottom: 0.25rem;
+    }
+
+    /* Compress stats cards */
+    .stats-grid {
+      gap: 0.5rem;
+    }
+
+    .stat-card {
+      padding: 0.75rem;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+    }
+
+    /* Compress modals */
+    .modal {
+      padding: 0.5rem;
+    }
+
+    .modal-content {
+      border-radius: 0.75rem;
+    }
+
+    .modal-header {
+      padding: 1rem;
+    }
+
+    .modal-body {
+      padding: 1rem;
+    }
+
+    /* Compress form elements */
+    input, select, textarea {
+      padding: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    /* Tighter spacing for lists */
+    .permit-list {
+      gap: 0.5rem;
+    }
+
+    /* Compress reservoir management */
+    .reservoir-tab {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      min-height: 36px;
+    }
+
+    /* Make permit actions more compact */
+    .permit-actions {
+      gap: 0.25rem;
+      flex-wrap: wrap;
+    }
+
+    .permit-actions .btn {
+      flex: 1;
+      min-width: auto;
+    }
+  }
+}
 
   body.dark-mode .mobile-top-nav {
     background: var(--surface-color);

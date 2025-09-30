@@ -42,6 +42,9 @@ class PermitDashboard {
             this.cancelledMappings = [];
         
         this.init();
+        
+        // Initialize dark mode
+        setTimeout(() => this.initializeDarkMode(), 100);
     }
     
     init() {
@@ -4760,6 +4763,185 @@ class OptimizedDashboard extends PermitDashboard {
         }
         
         return originalCard;
+    }
+
+    toggleDarkMode() {
+        const body = document.body;
+        const isDark = body.classList.contains('dark-mode');
+        
+        if (isDark) {
+            body.classList.remove('dark-mode');
+            localStorage.setItem('darkMode', 'false');
+            // Update button text
+            const toggleBtn = document.getElementById('darkModeToggle');
+            if (toggleBtn) {
+                toggleBtn.innerHTML = '🌙 Night';
+            }
+        } else {
+            body.classList.add('dark-mode');
+            localStorage.setItem('darkMode', 'true');
+            // Update button text
+            const toggleBtn = document.getElementById('darkModeToggle');
+            if (toggleBtn) {
+                toggleBtn.innerHTML = '☀️ Day';
+            }
+        }
+    }
+
+    // Initialize dark mode from localStorage
+    initializeDarkMode() {
+        const savedMode = localStorage.getItem('darkMode');
+        if (savedMode === 'true') {
+            document.body.classList.add('dark-mode');
+            const toggleBtn = document.getElementById('darkModeToggle');
+            if (toggleBtn) {
+                toggleBtn.innerHTML = '☀️ Day';
+            }
+        }
+    }
+
+    showMobileFilters() {
+        // Create modal for mobile filters
+        const modal = document.createElement('div');
+        modal.className = 'mobile-modal-overlay';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: flex-end; justify-content: center; z-index: 1000;';
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem 1rem 0 0; width: 100%; max-height: 80vh; overflow-y: auto; position: relative;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: white; border-radius: 1rem 1rem 0 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">🔍 Filters & Controls</h2>
+                        <button onclick="this.closest('.mobile-modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
+                    </div>
+                </div>
+                <div style="padding: 1.5rem;">
+                    <!-- Toggle Controls -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <h3 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600;">View Options</h3>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="mobileShowDismissed" ${this.showDismissed ? 'checked' : ''} 
+                                       onchange="window.dashboard.toggleShowDismissed()" 
+                                       style="width: 18px; height: 18px;">
+                                <span style="font-size: 0.875rem;">Show Dismissed Permits</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="mobileTodayOnly" ${this.todayOnly ? 'checked' : ''} 
+                                       onchange="window.dashboard.toggleTodayOnly()" 
+                                       style="width: 18px; height: 18px;">
+                                <span style="font-size: 0.875rem;">Today Only</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Filter Controls -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <h3 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600;">Search Filters</h3>
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500;">Operator</label>
+                                <input type="text" id="mobileOperatorFilter" placeholder="Search operator..." 
+                                       value="${this.filters.operator || ''}"
+                                       style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500;">County</label>
+                                <input type="text" id="mobileCountyFilter" placeholder="Search county..." 
+                                       value="${this.filters.county || ''}"
+                                       style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500;">Purpose</label>
+                                <select id="mobilePurposeFilter" 
+                                        style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem;">
+                                    <option value="">All Purposes</option>
+                                    <option value="new drill" ${this.filters.purpose === 'new drill' ? 'selected' : ''}>New Drill</option>
+                                    <option value="amendment" ${this.filters.purpose === 'amendment' ? 'selected' : ''}>Amendment</option>
+                                    <option value="reentry" ${this.filters.purpose === 'reentry' ? 'selected' : ''}>Reentry</option>
+                                    <option value="recomplete" ${this.filters.purpose === 'recomplete' ? 'selected' : ''}>Recomplete</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <button onclick="window.dashboard.applyMobileFilters()" 
+                                style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; border: none; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;">
+                            Apply Filters
+                        </button>
+                        <button onclick="window.dashboard.clearMobileFilters()" 
+                                style="width: 100%; padding: 0.75rem; background: #6b7280; color: white; border: none; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;">
+                            Clear All Filters
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+
+    applyMobileFilters() {
+        // Get filter values from mobile modal
+        const operatorFilter = document.getElementById('mobileOperatorFilter')?.value || '';
+        const countyFilter = document.getElementById('mobileCountyFilter')?.value || '';
+        const purposeFilter = document.getElementById('mobilePurposeFilter')?.value || '';
+        
+        // Update filters
+        this.filters.operator = operatorFilter.toLowerCase();
+        this.filters.county = countyFilter.toLowerCase();
+        this.filters.purpose = purposeFilter.toLowerCase();
+        
+        // Apply filters
+        this.applyFilters();
+        
+        // Close modal
+        document.querySelector('.mobile-modal-overlay')?.remove();
+        
+        // Show success message
+        const message = document.createElement('div');
+        message.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+        message.textContent = '✅ Filters applied';
+        document.body.appendChild(message);
+        
+        setTimeout(() => {
+            if (message.parentNode) {
+                message.remove();
+            }
+        }, 2000);
+    }
+
+    clearMobileFilters() {
+        // Clear all filters
+        this.filters = { operator: '', county: '', purpose: '', queue: '' };
+        this.selectedOperators.clear();
+        this.selectedCounties.clear();
+        
+        // Apply cleared filters
+        this.applyFilters();
+        
+        // Close modal
+        document.querySelector('.mobile-modal-overlay')?.remove();
+        
+        // Show success message
+        const message = document.createElement('div');
+        message.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+        message.textContent = '✅ Filters cleared';
+        document.body.appendChild(message);
+        
+        setTimeout(() => {
+            if (message.parentNode) {
+                message.remove();
+            }
+        }, 2000);
     }
 
     // Helper method to generate permit card HTML (using original structure)
