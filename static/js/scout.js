@@ -30,7 +30,7 @@ class ScoutWidget {
             }
 
             const data = await response.json();
-            this.insights = data;
+            this.insights = data.insights || [];
             this.renderInsights();
         } catch (error) {
             console.error('Error loading Scout insights:', error);
