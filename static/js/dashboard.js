@@ -1615,6 +1615,10 @@ class PermitDashboard {
                             style="padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 0.5rem; cursor: pointer;">
                         Cancel
                     </button>
+                    <button onclick="window.dashboard.markAsInjectionWell('${permit.status_no}'); this.closest('.fixed').remove();" 
+                            style="padding: 0.75rem 1.5rem; background: #ef4444; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">
+                        🚫 Mark as Injection Well
+                    </button>
                     <button onclick="window.dashboard.savePermitManualMapping('${permit.status_no}', '${currentFieldName.replace(/'/g, "\\'")}', '${permitUrl.replace(/'/g, "\\'")}')" 
                             style="padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">
                         💾 Save & Update Database
@@ -4989,8 +4993,8 @@ class OptimizedDashboard extends PermitDashboard {
             const timeRange = document.getElementById('mobileTimeRange')?.value || '90';
             const viewType = document.getElementById('mobileViewType')?.value || 'daily';
             
-            // Get reservoir mappings from localStorage
-            const reservoirMappings = JSON.parse(localStorage.getItem('reservoirMapping') || '{}');
+            // Get reservoir mappings from the same source as desktop
+            const reservoirMappings = this.reservoirMapping || JSON.parse(localStorage.getItem('reservoirMapping') || '{}');
             
             const response = await fetch(`/api/v1/reservoir-trends?days=${timeRange}&view_type=${viewType}&mappings=${encodeURIComponent(JSON.stringify(reservoirMappings))}`);
             const result = await response.json();
@@ -5158,6 +5162,53 @@ class OptimizedDashboard extends PermitDashboard {
         if (!pursuedPermits.includes(statusNo)) {
             pursuedPermits.push(statusNo);
             localStorage.setItem('pursuedPermits', JSON.stringify(pursuedPermits));
+        }
+    }
+
+    async markAsInjectionWell(statusNo) {
+        console.log('🚫 Marking permit as injection well:', statusNo);
+        
+        try {
+            // Mark as injection well and dismiss
+            const response = await fetch(`/api/v1/permits/${statusNo}/flag-injection-well`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            // Add to dismissed permits locally for immediate UI update
+            this.dismissedPermits.add(statusNo);
+            this.saveDismissedPermits();
+            
+            // Remove from permits array or mark as dismissed
+            const permitIndex = this.permits.findIndex(p => p.status_no === statusNo);
+            if (permitIndex !== -1) {
+                this.permits[permitIndex].is_dismissed = true;
+            }
+            
+            // Refresh the display
+            this.applyFilters();
+            
+            // Show success message
+            const message = document.createElement('div');
+            message.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #ef4444; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+            message.textContent = `🚫 Permit ${statusNo} marked as injection well and dismissed`;
+            document.body.appendChild(message);
+            
+            setTimeout(() => {
+                if (message.parentNode) {
+                    message.remove();
+                }
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Error marking as injection well:', error);
+            alert('Error marking permit as injection well. Please try again.');
         }
     }
 
@@ -5375,7 +5426,7 @@ class OptimizedDashboard extends PermitDashboard {
                     <!-- Row 2: Manage Reservoir + Re-enrich (side by side) -->
                     <div class="permit-action-row">
                         <button class="btn btn-sm btn-warning permit-action-half" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
-                            ⚙️ Manage
+                            ⚙️ Manage Reservoir
                         </button>
                         <button class="btn btn-sm btn-success permit-action-half" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
                             🔄 Re-enrich
