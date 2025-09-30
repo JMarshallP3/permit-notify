@@ -81,10 +81,13 @@ def _is_valid_field_name(text: str) -> bool:
     
     # Reject obvious non-field-name patterns
     invalid_patterns = [
-        # Timestamps and dates
+        # Timestamps and dates - ENHANCED to catch more patterns
         r'\d{2}/\d{2}/\d{4}',  # MM/DD/YYYY
         r'\d{1,2}:\d{2}:\d{2}',  # HH:MM:SS
         r'\b(am|pm)\b',  # AM/PM (word boundaries to avoid matching "camp", "phantom", etc.)
+        r'this\s+well\s+was\s+permitted\s+at\s+a\s+uzontal',  # Specific pattern from your example
+        r'uzontal.*\d{2}/\d{2}/\d{4}',  # "uzontal" followed by date
+        r'\(\s*\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}\s+[ap]m\s*\)',  # Full timestamp in parentheses
         
         # Status messages and well operations
         r'please pay',

@@ -2732,7 +2732,7 @@ class PermitDashboard {
             if (!confirmed) return;
 
             // Show loading state
-            this.showInfo(`🔄 Flagging permits for re-enrichment...`);
+            console.log(`🔄 Flagging permits for re-enrichment...`);
 
             // Find all permits with this field name
             const permitsToReenrich = this.permits.filter(permit => 
@@ -2740,7 +2740,7 @@ class PermitDashboard {
             );
 
             if (permitsToReenrich.length === 0) {
-                this.showError(`No permits found with field name "${fieldName}"`);
+                alert(`No permits found with field name "${fieldName}"`);
                 return;
             }
 
@@ -2816,7 +2816,7 @@ class PermitDashboard {
             
         } catch (error) {
             console.error('Error flagging for re-enrichment:', error);
-            this.showError(`Error: ${error.message}`);
+            alert(`Error: ${error.message}`);
         }
     }
 
