@@ -1481,6 +1481,7 @@ class PermitDashboard {
     
     openManualMappingForPermit(permit) {
         const modal = document.createElement('div');
+        modal.className = 'manual-mapping-modal';
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1001;';
         
         // Pre-populate with permit data - try multiple field name sources
@@ -1656,9 +1657,14 @@ class PermitDashboard {
                 }
             }, 4000);
             
-            // Close modal
-            const modal = document.querySelector('.fixed');
-            if (modal) modal.remove();
+            // Close modal - use specific class name for reliability
+            const modal = document.querySelector('.manual-mapping-modal');
+            if (modal) {
+                modal.remove();
+                console.log('Manual mapping modal closed successfully');
+            } else {
+                console.warn('Manual mapping modal not found for closing');
+            }
             
             // Remove from review queue
             this.removeSinglePermitFromReview(oldFieldName, statusNo);
@@ -4575,6 +4581,9 @@ class OptimizedDashboard extends PermitDashboard {
         // Get the original card HTML from the parent class method
         const originalCard = this.generatePermitCardHTML(permit);
         
+        // Check if this permit is dismissed
+        const isDismissed = this.dismissedPermits.has(permit.status_no);
+        
         // Check if this is an injection well
         const isInjectionWell = this.isInjectionWell(permit);
         
@@ -4585,7 +4594,7 @@ class OptimizedDashboard extends PermitDashboard {
                               !permit.field_name.includes('(exactly as shown in RRC records)') &&
                               !this.isIncorrectlyParsedFieldName(permit.field_name);
 
-        if (isInjectionWell) {
+        if (isInjectionWell && !isDismissed) {
             // Add "Injection Well Detected" banner
             const cardElement = document.createElement('div');
             cardElement.innerHTML = originalCard;
