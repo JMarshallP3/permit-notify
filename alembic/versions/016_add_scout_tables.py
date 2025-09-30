@@ -28,22 +28,22 @@ def upgrade():
     
     # Create signals table
     op.create_table('signals',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False, default=sa.text('gen_random_uuid()')),
         sa.Column('org_id', sa.String(length=50), nullable=False),
-        sa.Column('found_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('found_at', sa.DateTime(timezone=True), nullable=False, default=sa.text('now()')),
         sa.Column('source_url', sa.Text(), nullable=False),
         sa.Column('source_type', sa.String(length=50), nullable=False),
         sa.Column('state', sa.String(length=2), nullable=True),
         sa.Column('county', sa.String(length=100), nullable=True),
         sa.Column('play_basin', sa.String(length=100), nullable=True),
-        sa.Column('operators', postgresql.ARRAY(sa.String()), nullable=False),
-        sa.Column('unit_tokens', postgresql.ARRAY(sa.String()), nullable=False),
-        sa.Column('keywords', postgresql.ARRAY(sa.String()), nullable=False),
-        sa.Column('claim_type', claim_type_enum, nullable=False),
+        sa.Column('operators', postgresql.ARRAY(sa.String()), nullable=False, default='{}'),
+        sa.Column('unit_tokens', postgresql.ARRAY(sa.String()), nullable=False, default='{}'),
+        sa.Column('keywords', postgresql.ARRAY(sa.String()), nullable=False, default='{}'),
+        sa.Column('claim_type', claim_type_enum, nullable=False, default='rumor'),
         sa.Column('timeframe', sa.String(length=100), nullable=True),
         sa.Column('summary', sa.Text(), nullable=False),
         sa.Column('raw_excerpt', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, default=sa.text('now()')),
         sa.PrimaryKeyConstraint('id')
     )
     
@@ -58,23 +58,25 @@ def upgrade():
     
     # Create scout_insights table
     op.create_table('scout_insights',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False, default=sa.text('gen_random_uuid()')),
         sa.Column('org_id', sa.String(length=50), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('title', sa.String(length=90), nullable=False),
-        sa.Column('what_happened', sa.Text(), nullable=False),
-        sa.Column('why_it_matters', sa.Text(), nullable=False),
-        sa.Column('confidence', confidence_level_enum, nullable=False),
-        sa.Column('confidence_reasons', sa.Text(), nullable=False),
-        sa.Column('next_checks', sa.Text(), nullable=False),
-        sa.Column('source_urls', sa.Text(), nullable=False),
-        sa.Column('related_permit_ids', postgresql.ARRAY(sa.String()), nullable=False),
-        sa.Column('county', sa.String(length=100), nullable=True),
-        sa.Column('state', sa.String(length=2), nullable=True),
-        sa.Column('operator_keys', postgresql.ARRAY(sa.String()), nullable=False),
-        sa.Column('analytics', sa.JSON(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, default=sa.text('now()')),
+        sa.Column('title', sa.String(length=255), nullable=False),
+        sa.Column('what_happened', sa.JSON(), nullable=False, default='[]'),
+        sa.Column('why_it_matters', sa.JSON(), nullable=False, default='[]'),
+        sa.Column('confidence', confidence_level_enum, nullable=False, default='medium'),
+        sa.Column('confidence_reasons', sa.JSON(), nullable=False, default='[]'),
+        sa.Column('next_checks', sa.JSON(), nullable=False, default='[]'),
+        sa.Column('source_urls', sa.JSON(), nullable=False, default='[]'),
+        sa.Column('related_permit_ids', postgresql.ARRAY(sa.String()), nullable=False, default='{}'),
+        sa.Column('county', sa.String(length=50), nullable=True),
+        sa.Column('state', sa.String(length=50), nullable=True),
+        sa.Column('operator_keys', postgresql.ARRAY(sa.String()), nullable=False, default='{}'),
+        sa.Column('analytics', sa.JSON(), nullable=False, default='{}'),
         sa.Column('dedup_key', sa.String(length=255), nullable=True),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('dedup_key', name='uq_scout_insights_dedup_key')
     )
     
     # Create indexes for scout_insights
@@ -88,25 +90,25 @@ def upgrade():
     
     # Create scout_insight_user_state table
     op.create_table('scout_insight_user_state',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False, default=sa.text('gen_random_uuid()')),
         sa.Column('org_id', sa.String(length=50), nullable=False),
-        sa.Column('user_id', sa.String(length=100), nullable=False),
+        sa.Column('user_id', sa.String(length=50), nullable=False),
         sa.Column('insight_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('state', insight_user_state_enum, nullable=False),
+        sa.Column('state', insight_user_state_enum, nullable=False, default='default'),
         sa.Column('kept_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('dismissed_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('dismiss_reason', sa.Text(), nullable=True),
         sa.Column('archived_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('undo_token', postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column('undo_expires_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, default=sa.text('now()')),
         sa.ForeignKeyConstraint(['insight_id'], ['scout_insights.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('org_id', 'user_id', 'insight_id', name='_org_user_insight_uc')
     )
     
     # Create indexes for scout_insight_user_state
-    op.create_index('idx_scout_user_state_unique', 'scout_insight_user_state', ['org_id', 'user_id', 'insight_id'], unique=True)
     op.create_index('idx_scout_user_state_query', 'scout_insight_user_state', ['org_id', 'user_id', 'state', 'insight_id'])
     op.create_index('idx_scout_user_state_archive', 'scout_insight_user_state', ['org_id', 'user_id', 'archived_at'])
 
