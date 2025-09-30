@@ -5069,7 +5069,11 @@ class OptimizedDashboard extends PermitDashboard {
                     <div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.5rem; color: #374151;">Top Reservoirs (${viewType}):</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem;">
                         ${topReservoirs.map(dataset => {
-                            const total = dataset.data.reduce((sum, val) => sum + val, 0);
+                            // For cumulative view, use the last value (final total)
+                            // For daily view, sum all values
+                            const total = viewType === 'cumulative' 
+                                ? dataset.data[dataset.data.length - 1] || 0
+                                : dataset.data.reduce((sum, val) => sum + val, 0);
                             return `
                                 <div style="display: flex; align-items: center; gap: 0.25rem;">
                                     <div style="width: 8px; height: 8px; border-radius: 50%; background: ${dataset.borderColor};"></div>
@@ -5210,6 +5214,43 @@ class OptimizedDashboard extends PermitDashboard {
             console.error('Error marking as injection well:', error);
             alert('Error marking permit as injection well. Please try again.');
         }
+    }
+
+    openScout() {
+        console.log('🔍 Opening Scout...');
+        
+        // Placeholder function - you can build this out later
+        const modal = document.createElement('div');
+        modal.className = 'mobile-modal-overlay';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem;';
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 100%; max-width: 500px; position: relative;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">🔍 Scout</h2>
+                        <button onclick="this.closest('.mobile-modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
+                    </div>
+                </div>
+                <div style="padding: 1.5rem; text-align: center;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🚧</div>
+                    <h3 style="margin: 0 0 1rem 0; color: #374151;">Coming Soon</h3>
+                    <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">
+                        The Scout feature is under development.<br>
+                        This will be your advanced permit scouting dashboard.
+                    </p>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
     }
 
     showMobileFilters() {
