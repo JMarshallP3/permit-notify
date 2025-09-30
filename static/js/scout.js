@@ -606,15 +606,26 @@ class ScoutWidget {
     }
 
     showSuccess(message) {
-        const container = document.getElementById('scoutInsightsContainer');
-        if (container) {
-            container.innerHTML = `
-                <div class="success-state">
-                    <div style="color: #10b981; font-size: 1.5rem; margin-bottom: 0.5rem;">✅</div>
-                    <p>${message}</p>
-                </div>
-            `;
-        }
+        // Show success message as a temporary toast instead of overwriting insights
+        console.log('✅ SUCCESS:', message);
+        
+        // Create a temporary toast notification
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 10000;
+            background: #10b981; color: white; padding: 1rem; border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3); max-width: 400px;
+            font-size: 0.875rem; line-height: 1.4;
+        `;
+        toast.innerHTML = `✅ ${message}`;
+        document.body.appendChild(toast);
+        
+        // Remove toast after 5 seconds
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 5000);
     }
 
     getFullUI() {
