@@ -11,7 +11,7 @@ import os
 import logging
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
 from services.scraper.scraper import Scraper
@@ -939,6 +939,105 @@ async def count_permits_by_field_name(
     except Exception as e:
         logger.error(f"Count permits by field error: {e}")
         raise HTTPException(status_code=500, detail="Failed to count permits")
+
+@app.post("/api/v1/permits/{status_no}/re-enrich")
+async def re_enrich_single_permit(status_no: str, request: Request):
+    """
+    Re-enrich a single permit by re-parsing its detail page.
+    This will update the permit's field_name and other enriched data.
+    """
+    try:
+        # Get org_id for tenant isolation
+        org_id = request.query_params.get('org_id') or request.headers.get('X-Org-ID') or 'default_org'
+        
+        logger.info(f"Re-enriching permit {status_no} (org: {org_id})")
+        
+        with get_session() as session:
+            # Find the permit with tenant isolation
+            permit = session.query(Permit).filter(
+                Permit.status_no == status_no,
+                Permit.org_id == org_id
+            ).first()
+            
+            # If not found with org_id, try without for legacy data
+            if not permit and org_id == 'default_org':
+                permit = session.query(Permit).filter(
+                    Permit.status_no == status_no
+                ).first()
+            
+            if not permit:
+                raise HTTPException(status_code=404, detail=f"Permit {status_no} not found")
+            
+            # Check if permit has a detail_url
+            if not permit.detail_url:
+                raise HTTPException(status_code=400, detail=f"Permit {status_no} has no detail URL for re-enrichment")
+            
+            # Import the enrichment function
+            try:
+                from services.enrichment.detail_parser import parse_detail_page
+                
+                # Re-parse the detail page
+                logger.info(f"Re-parsing detail page for permit {status_no}: {permit.detail_url}")
+                enriched_data = parse_detail_page(permit.detail_url)
+                
+                if enriched_data:
+                    # Update the permit with new enriched data
+                    old_field_name = permit.field_name
+                    
+                    if 'field_name' in enriched_data and enriched_data['field_name']:
+                        permit.field_name = enriched_data['field_name']
+                    
+                    if 'horizontal_wellbore' in enriched_data:
+                        permit.horizontal_wellbore = enriched_data['horizontal_wellbore']
+                    
+                    if 'acres' in enriched_data:
+                        permit.acres = enriched_data['acres']
+                    
+                    if 'section' in enriched_data:
+                        permit.section = enriched_data['section']
+                    
+                    if 'block' in enriched_data:
+                        permit.block = enriched_data['block']
+                    
+                    if 'survey' in enriched_data:
+                        permit.survey = enriched_data['survey']
+                    
+                    if 'abstract_no' in enriched_data:
+                        permit.abstract_no = enriched_data['abstract_no']
+                    
+                    # Update enrichment metadata
+                    permit.w1_parse_status = 'ok'
+                    permit.w1_last_enriched_at = datetime.now(timezone.utc)
+                    
+                    session.commit()
+                    
+                    logger.info(f"✅ Successfully re-enriched permit {status_no}: '{old_field_name}' → '{permit.field_name}'")
+                    
+                    return {
+                        "success": True,
+                        "message": f"Permit {status_no} re-enriched successfully",
+                        "status_no": permit.status_no,
+                        "old_field_name": old_field_name,
+                        "new_field_name": permit.field_name,
+                        "enriched_fields": list(enriched_data.keys()) if enriched_data else []
+                    }
+                else:
+                    # Mark as failed to parse
+                    permit.w1_parse_status = 'parse_error'
+                    permit.w1_last_enriched_at = datetime.now(timezone.utc)
+                    session.commit()
+                    
+                    raise HTTPException(status_code=400, detail=f"Failed to parse detail page for permit {status_no}")
+                    
+            except ImportError as e:
+                logger.error(f"Could not import enrichment parser: {e}")
+                raise HTTPException(status_code=500, detail="Enrichment service not available")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Re-enrich permit error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to re-enrich permit: {str(e)}")
 
 @app.post("/api/v1/permits/bulk-update-field")
 async def bulk_update_field_names(request_data: dict):

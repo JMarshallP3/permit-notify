@@ -2735,102 +2735,73 @@ class PermitDashboard {
         }
     }
 
-    async flagForReenrich(fieldName) {
+    async flagForReenrich(statusNo) {
         try {
+            // Find the specific permit
+            const permit = this.permits.find(p => p.status_no === statusNo);
+            if (!permit) {
+                alert(`Permit ${statusNo} not found`);
+                return;
+            }
+
             // Confirm with user
             const confirmed = confirm(
-                `Flag permits with field name "${fieldName}" for re-enrichment?\n\n` +
-                `This will re-extract detailed information for all permits with this field name. The process may take a few minutes.`
+                `Re-enrich permit ${statusNo}?\n\n` +
+                `Lease: ${permit.lease_name || 'Unknown'}\n` +
+                `Operator: ${permit.operator_name || 'Unknown'}\n\n` +
+                `This will re-extract detailed information from the RRC detail page for this specific permit.`
             );
             
             if (!confirmed) return;
 
             // Show loading state
-            console.log(`🔄 Flagging permits for re-enrichment...`);
+            console.log(`🔄 Re-enriching permit ${statusNo}...`);
 
-            // Find all permits with this field name
-            const permitsToReenrich = this.permits.filter(permit => 
-                permit.field_name && permit.field_name.trim().toLowerCase() === fieldName.trim().toLowerCase()
-            );
-
-            if (permitsToReenrich.length === 0) {
-                alert(`No permits found with field name "${fieldName}"`);
-                return;
-            }
-
-            // Get existing re-enrichment queue
-            const reenrichQueue = JSON.parse(localStorage.getItem('reenrichQueue') || '[]');
-            
-            // Add permits to re-enrichment queue
-            let addedCount = 0;
-            permitsToReenrich.forEach(permit => {
-                // Check if already in queue
-                const alreadyQueued = reenrichQueue.some(item => item.statusNo === permit.status_no);
-                if (!alreadyQueued) {
-                    reenrichQueue.push({
-                        statusNo: permit.status_no,
-                        leaseName: permit.lease_name,
-                        fieldName: permit.field_name,
-                        county: permit.county,
-                        operator: permit.operator_name,
-                        flaggedAt: new Date().toISOString(),
-                        status: 'queued',
-                        reason: 'Manual re-enrichment request'
-                    });
-                    addedCount++;
+            // Call the backend API to re-enrich this specific permit
+            const response = await fetch(`/api/v1/permits/${statusNo}/re-enrich`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache'
                 }
             });
 
-            // Save to localStorage
-            localStorage.setItem('reenrichQueue', JSON.stringify(reenrichQueue));
-
-            if (addedCount > 0) {
-                this.showSuccess(`✅ Flagged ${addedCount} permit${addedCount !== 1 ? 's' : ''} for re-enrichment`);
-                
-                // Try to trigger server-side re-enrichment if API is available
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
                 try {
-                    const statusNumbers = reenrichQueue
-                        .filter(item => item.status === 'queued')
-                        .map(item => item.statusNo);
-                    
-                    if (statusNumbers.length > 0) {
-                        const response = await fetch('/api/v1/permits/reenrich', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ 
-                                status_numbers: statusNumbers.slice(0, 10), // Limit to 10 at a time
-                                reason: 'Manual flag from dashboard'
-                            })
-                        });
-
-                        if (response.ok) {
-                            this.showSuccess(`🚀 Re-enrichment started for ${Math.min(statusNumbers.length, 10)} permits`);
-                            
-                            // Refresh permit data after a short delay
-                            setTimeout(() => {
-                                this.loadPermitData();
-                            }, 3000);
-                        } else {
-                            console.warn('Re-enrichment API not available, permits queued locally');
-                        }
+                    const errorData = await response.json();
+                    if (errorData.detail) {
+                        errorMessage = errorData.detail;
                     }
-                } catch (apiError) {
-                    console.warn('Re-enrichment API not available:', apiError);
-                    // Continue with local queuing
+                } catch (e) {
+                    // Use basic error message if can't parse JSON
                 }
-                
-            } else {
-                this.showInfo(`All ${permitsToReenrich.length} permit${permitsToReenrich.length !== 1 ? 's' : ''} with this field name are already queued for re-enrichment`);
+                throw new Error(errorMessage);
             }
 
-            // Remove from review queue since we're handling it
-            this.removeFromReviewQueue(fieldName);
+            const result = await response.json();
+
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+            successMsg.textContent = `✅ Permit ${statusNo} re-enriched successfully`;
+            document.body.appendChild(successMsg);
+
+            // Auto-remove success message after 4 seconds
+            setTimeout(() => {
+                if (successMsg.parentNode) {
+                    successMsg.remove();
+                }
+            }, 4000);
+
+            // Refresh the permit data to show updated information
+            setTimeout(() => {
+                this.loadPermits();
+            }, 1500);
             
         } catch (error) {
-            console.error('Error flagging for re-enrichment:', error);
-            alert(`Error: ${error.message}`);
+            console.error('Error re-enriching permit:', error);
+            alert(`Error re-enriching permit: ${error.message}`);
         }
     }
 
