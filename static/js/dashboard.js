@@ -350,6 +350,11 @@ class PermitDashboard {
         let permitDate;
         const dateStr = permit.status_date;
         
+        // Debug logging for date issues
+        if (this.permits.length > 0 && Math.random() < 0.01) { // Log 1% of the time to avoid spam
+            console.log('🗓️ Date debugging - permit.status_date:', dateStr, 'type:', typeof dateStr);
+        }
+        
         // Convert MM-DD-YYYY to ISO format (YYYY-MM-DD) for reliable parsing
         if (dateStr.includes('-') && dateStr.length === 10) {
             const parts = dateStr.split('-');
@@ -365,6 +370,20 @@ class PermitDashboard {
         }
         
         const today = new Date();
+        
+        // Debug logging for date comparison
+        if (this.permits.length > 0 && Math.random() < 0.01) { // Log 1% of the time
+            console.log('🗓️ Date comparison:', {
+                permitDateStr: dateStr,
+                permitDate: permitDate.toDateString(),
+                today: today.toDateString(),
+                isToday: (
+                    permitDate.getFullYear() === today.getFullYear() &&
+                    permitDate.getMonth() === today.getMonth() &&
+                    permitDate.getDate() === today.getDate()
+                )
+            });
+        }
         
         // Compare dates by year, month, and day (ignore time)
         return (
@@ -1526,7 +1545,7 @@ class PermitDashboard {
     
     openManualMappingForPermit(permit) {
         const modal = document.createElement('div');
-        modal.className = 'manual-mapping-modal';
+        modal.className = 'manual-mapping-modal fixed';
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1001;';
         
         // Pre-populate with permit data - try multiple field name sources
@@ -1602,6 +1621,22 @@ class PermitDashboard {
         `;
         
         document.body.appendChild(modal);
+        
+        // Add keyboard support (Escape to close)
+        const handleKeydown = (e) => {
+            if (e.key === 'Escape') {
+                modal.remove();
+                document.removeEventListener('keydown', handleKeydown);
+            }
+        };
+        document.addEventListener('keydown', handleKeydown);
+        
+        // Remove event listener when modal is removed
+        const originalRemove = modal.remove;
+        modal.remove = function() {
+            document.removeEventListener('keydown', handleKeydown);
+            originalRemove.call(this);
+        };
         
         // Focus the correct field name input
         setTimeout(() => {
