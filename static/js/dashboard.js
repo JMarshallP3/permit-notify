@@ -1480,9 +1480,6 @@ class PermitDashboard {
     }
     
     openManualMappingForPermit(permit) {
-        // Debug logging to see what permit data we have
-        console.log('openManualMappingForPermit called with permit:', permit);
-        
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1001;';
         
@@ -1490,12 +1487,6 @@ class PermitDashboard {
         const currentFieldName = permit.currentFieldName || permit.field_name || permit.fieldName || 'UNKNOWN_FIELD';
         const permitUrl = permit.detail_url || '';
         const statusNo = permit.status_no || '';
-        
-        console.log('Extracted values:', {
-            currentFieldName: currentFieldName,
-            permitUrl: permitUrl,
-            statusNo: statusNo
-        });
         
         modal.innerHTML = `
             <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 700px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
@@ -1592,20 +1583,8 @@ class PermitDashboard {
     }
     
     async savePermitManualMapping(statusNo, oldFieldName, permitUrl) {
-        // Debug logging to identify the issue
-        console.log('savePermitManualMapping called with:', {
-            statusNo: statusNo,
-            oldFieldName: oldFieldName,
-            permitUrl: permitUrl
-        });
-        
         const correctFieldName = document.getElementById('correctFieldName').value.trim();
         const correctReservoir = document.getElementById('correctReservoirName').value.trim();
-        
-        console.log('Form values:', {
-            correctFieldName: correctFieldName,
-            correctReservoir: correctReservoir
-        });
         
         if (!correctFieldName || !correctReservoir) {
             alert('Please fill in both the correct field name and reservoir name.');
@@ -1854,9 +1833,11 @@ class PermitDashboard {
         return false;
     }
     
-    acceptNewReservoir(permit) {
+    async acceptNewReservoir(permit) {
         try {
             const fieldName = permit.field_name || '';
+            const statusNo = permit.status_no || '';
+            const permitUrl = permit.detail_url || '';
             
             // Extract reservoir name from field name
             let reservoirName = fieldName;
@@ -1872,8 +1853,33 @@ class PermitDashboard {
             // Clean up common suffixes
             reservoirName = reservoirName.replace(/\s+(trend\s+area|formation|shale|chalk|sand|lime)$/i, '').trim();
             
-            // Add to saved mappings
+            // Add to saved mappings (local storage)
             this.addToSavedMappings(fieldName, reservoirName.toUpperCase());
+            
+            // Save to database for learning and persistence
+            try {
+                const response = await fetch('/api/v1/field-corrections/correct', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        status_no: statusNo,
+                        wrong_field: fieldName,
+                        correct_field: fieldName, // Field name is correct, just accepting it
+                        correct_reservoir: reservoirName.toUpperCase(),
+                        detail_url: permitUrl,
+                        html_context: ""
+                    })
+                });
+                
+                if (!response.ok) {
+                    console.warn(`Failed to save acceptance to database: ${response.status}`);
+                }
+            } catch (dbError) {
+                console.warn('Failed to save acceptance to database:', dbError);
+                // Don't fail the whole operation if database save fails
+            }
             
             // Show success message
             const successMsg = document.createElement('div');
