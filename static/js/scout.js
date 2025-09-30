@@ -182,7 +182,7 @@ class ScoutWidget {
         try {
             this.showInfo('🔧 Setting up Scout v2.2 database tables... This may take 30-60 seconds.');
             
-            const response = await fetch('/api/v1/scout/setup', {
+            const response = await fetch('/api/v1/scout/setup?org_id=default_org', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -190,21 +190,22 @@ class ScoutWidget {
             });
             
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
             
             const data = await response.json();
             
             if (data.success) {
-                this.showSuccess('🎉 Database setup complete! Scout v2.2 is now ready for real insights. Try "All Sources" again!');
-                console.log('✅ Database setup output:', data.output);
+                this.showSuccess(`🎉 ${data.message}`);
+                console.log('✅ Database setup result:', data);
                 
                 // Automatically try to load real insights
                 setTimeout(() => {
                     this.loadInsights();
                 }, 2000);
             } else {
-                throw new Error(data.detail || 'Database setup failed');
+                throw new Error(data.message || data.error || 'Database setup failed');
             }
         } catch (error) {
             console.error('Error setting up database:', error);

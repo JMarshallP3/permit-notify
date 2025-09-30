@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 import json
 import uuid
+import psycopg2
 
 from db.session import get_session
 from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState, InsightUserState, ConfidenceLevel
@@ -419,211 +420,160 @@ async def test_database_connection():
         }
 
 @router.post("/setup")
-async def setup_scout_tables():
-    """Manually create Scout v2.2 database tables using raw SQL"""
+async def setup_scout_tables(org_id: str = Query("default_org")):
+    """Robust Scout v2.2 database setup using psycopg2"""
     
     try:
         import os
-        from sqlalchemy import create_engine, text
+        import psycopg2
         
         database_url = os.getenv('DATABASE_URL')
         if not database_url:
-            raise HTTPException(status_code=500, detail="No DATABASE_URL configured")
+            logger.error("❌ No DATABASE_URL environment variable found")
+            return {
+                "success": False,
+                "message": "No DATABASE_URL configured",
+                "error": "DATABASE_URL environment variable not set"
+            }
         
-        logger.info("🔧 Creating Scout v2.2 database tables...")
+        # Convert SQLAlchemy URL to psycopg2 format
+        if database_url.startswith("postgresql+psycopg"):
+            database_url = database_url.replace("postgresql+psycopg", "postgresql")
         
-        # Create engine
-        engine = create_engine(database_url)
+        logger.info("🔧 Starting robust Scout v2.2 database setup...")
         
-        setup_sql = [
-            # Step 1: Create enums
-            """
-            DO $$ BEGIN
-                CREATE TYPE sourcetype AS ENUM (
-                    'forum', 'news', 'pr', 'filing', 'gov_bulletin', 'blog', 'social', 'other'
-                );
-            EXCEPTION
-                WHEN duplicate_object THEN null;
-            END $$;
-            """,
-            
-            """
-            DO $$ BEGIN
-                CREATE TYPE timeframe AS ENUM (
-                    'past', 'now', 'next_90d'
-                );
-            EXCEPTION
-                WHEN duplicate_object THEN null;
-            END $$;
-            """,
-            
-            """
-            DO $$ BEGIN
-                CREATE TYPE confidencelevel AS ENUM (
-                    'low', 'medium', 'high'
-                );
-            EXCEPTION
-                WHEN duplicate_object THEN null;
-            END $$;
-            """,
-            
-            """
-            DO $$ BEGIN
-                CREATE TYPE insightuserstate AS ENUM (
-                    'default', 'kept', 'dismissed', 'archived'
-                );
-            EXCEPTION
-                WHEN duplicate_object THEN null;
-            END $$;
-            """,
-            
-            # Step 2: Add org_id to field_corrections if needed
-            """
-            DO $$ BEGIN
-                IF NOT EXISTS (
-                    SELECT column_name FROM information_schema.columns 
-                    WHERE table_name = 'field_corrections' AND column_name = 'org_id'
-                ) THEN
-                    ALTER TABLE field_corrections 
-                    ADD COLUMN org_id VARCHAR(50) NOT NULL DEFAULT 'default_org';
-                    
-                    CREATE INDEX IF NOT EXISTS idx_field_corrections_org_id 
-                    ON field_corrections(org_id);
-                END IF;
-            END $$;
-            """,
-            
-            # Step 3: Create signals table
-            """
-            CREATE TABLE IF NOT EXISTS signals (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                org_id VARCHAR(50) NOT NULL,
-                found_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                source_url TEXT NOT NULL,
-                source_type sourcetype NOT NULL,
-                state VARCHAR(2),
-                county VARCHAR(100),
-                play_basin VARCHAR(100),
-                operators TEXT[] NOT NULL DEFAULT '{}',
-                unit_tokens TEXT[] NOT NULL DEFAULT '{}',
-                keywords TEXT[] NOT NULL DEFAULT '{}',
-                claim_type VARCHAR(20) NOT NULL DEFAULT 'rumor',
-                timeframe timeframe,
-                summary TEXT NOT NULL,
-                raw_excerpt TEXT,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            );
-            """,
-            
-            # Step 4: Create scout_insights table
-            """
-            CREATE TABLE IF NOT EXISTS scout_insights (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                org_id VARCHAR(50) NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                title VARCHAR(90) NOT NULL,
-                what_happened TEXT NOT NULL,
-                why_it_matters TEXT NOT NULL,
-                confidence confidencelevel NOT NULL,
-                confidence_reasons TEXT NOT NULL,
-                next_checks TEXT NOT NULL,
-                source_urls TEXT NOT NULL,
-                related_permit_ids TEXT[] NOT NULL DEFAULT '{}',
-                county VARCHAR(100),
-                state VARCHAR(2),
-                operator_keys TEXT[] NOT NULL DEFAULT '{}',
-                analytics JSONB NOT NULL DEFAULT '{}',
-                dedup_key VARCHAR(255)
-            );
-            """,
-            
-            # Step 5: Create scout_insight_user_state table
-            """
-            CREATE TABLE IF NOT EXISTS scout_insight_user_state (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                org_id VARCHAR(50) NOT NULL,
-                user_id VARCHAR(100) NOT NULL,
-                insight_id UUID NOT NULL,
-                state insightuserstate NOT NULL DEFAULT 'default',
-                kept_at TIMESTAMP WITH TIME ZONE,
-                dismissed_at TIMESTAMP WITH TIME ZONE,
-                dismiss_reason TEXT,
-                archived_at TIMESTAMP WITH TIME ZONE,
-                undo_token VARCHAR(255),
-                undo_expires_at TIMESTAMP WITH TIME ZONE,
-                UNIQUE(org_id, user_id, insight_id)
-            );
-            """,
-            
-            # Step 6: Create indexes
-            """
-            CREATE INDEX IF NOT EXISTS idx_signals_org_found_at ON signals(org_id, found_at);
-            CREATE INDEX IF NOT EXISTS idx_signals_org_county ON signals(org_id, county);
-            CREATE INDEX IF NOT EXISTS idx_signals_operators_gin ON signals USING gin(operators);
-            """,
-            
-            """
-            CREATE INDEX IF NOT EXISTS idx_scout_insights_org_created ON scout_insights(org_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_scout_insights_org_county ON scout_insights(org_id, county);
-            CREATE INDEX IF NOT EXISTS idx_scout_insights_operator_keys_gin ON scout_insights USING gin(operator_keys);
-            CREATE INDEX IF NOT EXISTS idx_scout_insights_dedup_key ON scout_insights(dedup_key);
-            """,
-            
-            """
-            CREATE INDEX IF NOT EXISTS idx_scout_user_state_org_user_state ON scout_insight_user_state(org_id, user_id, state, insight_id);
-            CREATE INDEX IF NOT EXISTS idx_scout_user_state_org_user_archived ON scout_insight_user_state(org_id, user_id, archived_at);
-            """
-        ]
+        # Idempotent DDL SQL - safe to run multiple times
+        DDL_SQL = """
+        -- Create Scout v2.2 tables with CHECK constraints instead of enums
+        CREATE TABLE IF NOT EXISTS public.signals (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            org_id TEXT NOT NULL DEFAULT 'default_org',
+            found_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            source_url TEXT NOT NULL,
+            source_type TEXT CHECK (source_type IN ('forum','news','pr','filing','gov_bulletin','blog','social','other')) NOT NULL DEFAULT 'other',
+            state TEXT,
+            county TEXT,
+            play_basin TEXT,
+            operators TEXT[] DEFAULT '{}',
+            unit_tokens TEXT[] DEFAULT '{}',
+            keywords TEXT[] DEFAULT '{}',
+            claim_type TEXT CHECK (claim_type IN ('rumor','likely','confirmed')) NOT NULL DEFAULT 'likely',
+            timeframe TEXT CHECK (timeframe IN ('past','now','next_90d')) NOT NULL DEFAULT 'now',
+            summary TEXT NOT NULL,
+            raw_excerpt TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_signals_org_found ON public.signals (org_id, found_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_signals_org_county ON public.signals (org_id, county);
+        CREATE INDEX IF NOT EXISTS ix_signals_org_ops ON public.signals USING gin (operators);
+        CREATE INDEX IF NOT EXISTS ix_signals_keywords ON public.signals USING gin (keywords);
+
+        CREATE TABLE IF NOT EXISTS public.scout_insights (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            org_id TEXT NOT NULL DEFAULT 'default_org',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            title TEXT NOT NULL,
+            what_happened TEXT NOT NULL,     -- markdown bullet list
+            why_it_matters TEXT NOT NULL,    -- markdown bullet list
+            confidence TEXT CHECK (confidence IN ('low','medium','high')) NOT NULL DEFAULT 'medium',
+            confidence_reasons TEXT,
+            next_checks TEXT[] DEFAULT '{}',
+            source_urls TEXT[] NOT NULL DEFAULT '{}',
+            related_permit_ids TEXT[] DEFAULT '{}',
+            county TEXT,
+            state TEXT,
+            operator_keys TEXT[] DEFAULT '{}',
+            analytics JSONB DEFAULT '{}'::jsonb,
+            dedup_key TEXT UNIQUE
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_insights_org_created ON public.scout_insights (org_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_insights_org_county ON public.scout_insights (org_id, county);
+        CREATE INDEX IF NOT EXISTS ix_insights_org_ops ON public.scout_insights USING gin (operator_keys);
+        CREATE INDEX IF NOT EXISTS ix_insights_org_analytics ON public.scout_insights USING gin ((analytics));
+
+        CREATE TABLE IF NOT EXISTS public.scout_insight_user_state (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            org_id TEXT NOT NULL DEFAULT 'default_org',
+            user_id TEXT NOT NULL DEFAULT 'default_user',
+            insight_id UUID NOT NULL REFERENCES public.scout_insights(id) ON DELETE CASCADE,
+            state TEXT CHECK (state IN ('default','kept','dismissed','archived')) NOT NULL DEFAULT 'default',
+            kept_at TIMESTAMPTZ,
+            dismissed_at TIMESTAMPTZ,
+            dismiss_reason TEXT,
+            archived_at TIMESTAMPTZ,
+            undo_token UUID,
+            undo_expires_at TIMESTAMPTZ
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_state_org_user_insight
+            ON public.scout_insight_user_state (org_id, user_id, insight_id);
+        CREATE INDEX IF NOT EXISTS ix_state_filter
+            ON public.scout_insight_user_state (org_id, user_id, state, insight_id);
+        CREATE INDEX IF NOT EXISTS ix_state_archived
+            ON public.scout_insight_user_state (org_id, user_id, archived_at);
+
+        -- Ensure field_corrections has org_id column
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'field_corrections' AND column_name = 'org_id'
+            ) THEN
+                ALTER TABLE field_corrections 
+                ADD COLUMN org_id TEXT NOT NULL DEFAULT 'default_org';
+                
+                CREATE INDEX IF NOT EXISTS idx_field_corrections_org_id 
+                ON field_corrections(org_id);
+            END IF;
+        END $$;
+        """
         
-        created_objects = []
+        # Execute DDL with psycopg2
+        with psycopg2.connect(database_url) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                logger.info("📝 Executing Scout v2.2 DDL...")
+                cur.execute(DDL_SQL)
+                logger.info("✅ DDL execution completed")
         
-        with engine.connect() as conn:
-            for i, sql in enumerate(setup_sql):
-                try:
-                    conn.execute(text(sql))
-                    conn.commit()
-                    created_objects.append(f"Step {i+1} completed")
-                    logger.info(f"✅ Setup step {i+1} completed")
-                except Exception as e:
-                    logger.warning(f"⚠️ Setup step {i+1}: {e}")
-                    created_objects.append(f"Step {i+1}: {str(e)[:50]}...")
+        # Verify tables were created
+        with psycopg2.connect(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name IN ('signals', 'scout_insights', 'scout_insight_user_state')
+                    ORDER BY table_name
+                """)
+                tables = [row[0] for row in cur.fetchall()]
         
-        # Verify tables exist
-        with engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT table_name FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_name IN ('signals', 'scout_insights', 'scout_insight_user_state')
-            """))
-            tables = [row[0] for row in result]
-            
-            logger.info(f"✅ Found tables: {tables}")
-            
-            if len(tables) >= 2:  # At least signals and scout_insights
-                logger.info("🎉 SUCCESS: Scout v2.2 tables created successfully!")
-                return {
-                    "success": True,
-                    "message": f"Scout v2.2 setup completed! Found {len(tables)} tables: {', '.join(tables)}. Real insights are now enabled.",
-                    "tables_created": tables,
-                    "setup_steps": created_objects
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Partial setup: Only {len(tables)}/3 tables found: {tables}",
-                    "tables_created": tables,
-                    "setup_steps": created_objects
-                }
+        if len(tables) >= 2:  # At least signals and scout_insights
+            logger.info(f"🎉 SUCCESS: Scout v2.2 tables created! Found: {', '.join(tables)}")
+            return {
+                "success": True,
+                "message": f"Scout v2.2 setup completed successfully! Found {len(tables)} tables: {', '.join(tables)}. Real insights are now enabled.",
+                "tables_created": tables,
+                "org_id": org_id
+            }
+        else:
+            logger.warning(f"⚠️ Only {len(tables)} Scout tables found: {tables}")
+            return {
+                "success": False,
+                "message": f"Partial setup: Only {len(tables)} Scout tables found: {tables}",
+                "tables_created": tables,
+                "org_id": org_id
+            }
                 
     except Exception as e:
-        logger.error(f"❌ ERROR creating Scout tables: {e}", exc_info=True)
-        # Don't raise HTTPException, just return error response
+        logger.error(f"❌ Scout setup failed: {e}", exc_info=True)
         return {
             "success": False,
             "message": f"Setup failed: {str(e)}",
             "error": str(e),
-            "error_type": type(e).__name__
+            "error_type": type(e).__name__,
+            "org_id": org_id
         }
 
 @router.post("/crawl/all")
