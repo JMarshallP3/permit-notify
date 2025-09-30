@@ -308,6 +308,24 @@ async def startup_event():
     try:
         logger.info("Initializing database operations")
         # Base.metadata.create_all(bind=engine)  # Uncomment if needed
+        
+        # Run Alembic migrations on startup
+        try:
+            from alembic.config import Config
+            from alembic import command
+            import os
+            
+            if os.getenv('DATABASE_URL'):
+                logger.info("Running database migrations...")
+                alembic_cfg = Config("alembic.ini")
+                command.upgrade(alembic_cfg, "head")
+                logger.info("✅ Database migrations completed successfully")
+            else:
+                logger.info("Skipping migrations - no DATABASE_URL set")
+        except Exception as migration_error:
+            logger.error(f"❌ Migration failed: {migration_error}")
+            # Continue startup even if migrations fail
+        
         logger.info("✅ Database initialization completed")
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
