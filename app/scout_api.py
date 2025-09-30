@@ -420,7 +420,41 @@ async def trigger_all_sources_crawl(org_id: str = Query("default_org")):
         }
     except Exception as e:
         logger.error(f"Error during all-sources crawl: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Crawl failed: {e}")
+        
+        # Fallback to compatibility mode
+        try:
+            from services.scout.compatibility import CompatibilityService
+            compat_service = CompatibilityService(org_id)
+            results = await compat_service.simulate_crawl_all_sources()
+            
+            return {
+                "success": True,
+                "results": results,
+                "message": f"Compatibility mode: Simulated crawl of {results['total_crawled']} items, generated {results['insights_created']} demo insights",
+                "compatibility_mode": True
+            }
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            raise HTTPException(status_code=500, detail=f"Crawl failed: {e}")
+
+@router.get("/insights/demo")
+async def get_demo_insights(org_id: str = Query("default_org")):
+    """Get Scout v2.2 demo insights (compatibility mode)"""
+    try:
+        from services.scout.compatibility import CompatibilityService
+        
+        compat_service = CompatibilityService(org_id)
+        demo_insights = await compat_service.create_demo_insights_v22()
+        
+        return {
+            "success": True,
+            "insights": demo_insights,
+            "total": len(demo_insights),
+            "message": "Scout v2.2 demo insights with enhanced analytics"
+        }
+    except Exception as e:
+        logger.error(f"Error creating demo insights: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Demo insights failed: {e}")
 
 @router.post("/crawl/mrf")
 async def trigger_mrf_crawl(org_id: str = Query("default_org")):

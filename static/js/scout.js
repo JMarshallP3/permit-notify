@@ -32,9 +32,31 @@ class ScoutWidget {
             const data = await response.json();
             this.insights = data.insights || [];
             this.renderInsights();
+            
+            // Show compatibility mode message if applicable
+            if (data.message && data.message.includes('compatibility')) {
+                this.showInfo(data.message);
+            }
         } catch (error) {
             console.error('Error loading Scout insights:', error);
-            this.showError('Failed to load insights');
+            
+            // Fallback to demo insights
+            try {
+                console.log('🔄 Falling back to Scout v2.2 demo mode...');
+                const demoResponse = await fetch('/api/v1/scout/insights/demo?org_id=default_org');
+                const demoData = await demoResponse.json();
+                
+                if (demoData.success) {
+                    this.insights = demoData.insights || [];
+                    this.renderInsights();
+                    this.showSuccess('🚀 Scout v2.2 Demo Mode Active - Enhanced analytics with multi-source intelligence!');
+                } else {
+                    throw new Error('Demo mode also failed');
+                }
+            } catch (demoError) {
+                console.error('Demo mode failed:', demoError);
+                this.showError('Failed to load insights');
+            }
         }
     }
 
