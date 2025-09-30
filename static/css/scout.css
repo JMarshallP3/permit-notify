@@ -6,6 +6,7 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    min-height: 500px; /* Ensure minimum height for content */
 }
 
 .scout-filters {
@@ -48,6 +49,10 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    min-height: 400px; /* Ensure minimum height */
+    max-height: calc(90vh - 200px); /* Account for header and filters */
+    border: 2px dashed #e2e8f0; /* Debug: make container visible */
+    padding: 1rem;
 }
 
 .insight-card {
