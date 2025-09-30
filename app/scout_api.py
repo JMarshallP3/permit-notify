@@ -425,7 +425,7 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
     
     try:
         import os
-        import psycopg2
+        from sqlalchemy import create_engine, text
         
         database_url = os.getenv('DATABASE_URL')
         if not database_url:
@@ -436,16 +436,21 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
                 "error": "DATABASE_URL environment variable not set"
             }
         
-        # Convert SQLAlchemy URL to psycopg2 format
-        if database_url.startswith("postgresql+psycopg"):
-            database_url = database_url.replace("postgresql+psycopg", "postgresql")
+        logger.info("🔧 Starting robust Scout v2.2 database setup with SQLAlchemy...")
         
-        logger.info("🔧 Starting robust Scout v2.2 database setup...")
+        # Try psycopg2 first, fallback to SQLAlchemy
+        use_psycopg2 = False
+        try:
+            import psycopg2
+            use_psycopg2 = True
+            logger.info("✅ psycopg2 available, using direct connection")
+        except ImportError:
+            logger.info("⚠️ psycopg2 not available, using SQLAlchemy")
         
         # Idempotent DDL SQL - safe to run multiple times
         DDL_SQL = """
         -- Create Scout v2.2 tables with CHECK constraints instead of enums
-        CREATE TABLE IF NOT EXISTS public.signals (
+        CREATE TABLE IF NOT EXISTS signals (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             org_id TEXT NOT NULL DEFAULT 'default_org',
             found_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -463,19 +468,19 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
             raw_excerpt TEXT
         );
 
-        CREATE INDEX IF NOT EXISTS ix_signals_org_found ON public.signals (org_id, found_at DESC);
-        CREATE INDEX IF NOT EXISTS ix_signals_org_county ON public.signals (org_id, county);
-        CREATE INDEX IF NOT EXISTS ix_signals_org_ops ON public.signals USING gin (operators);
-        CREATE INDEX IF NOT EXISTS ix_signals_keywords ON public.signals USING gin (keywords);
+        CREATE INDEX IF NOT EXISTS ix_signals_org_found ON signals (org_id, found_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_signals_org_county ON signals (org_id, county);
+        CREATE INDEX IF NOT EXISTS ix_signals_org_ops ON signals USING gin (operators);
+        CREATE INDEX IF NOT EXISTS ix_signals_keywords ON signals USING gin (keywords);
 
-        CREATE TABLE IF NOT EXISTS public.scout_insights (
+        CREATE TABLE IF NOT EXISTS scout_insights (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             org_id TEXT NOT NULL DEFAULT 'default_org',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             title TEXT NOT NULL,
-            what_happened TEXT NOT NULL,     -- markdown bullet list
-            why_it_matters TEXT NOT NULL,    -- markdown bullet list
+            what_happened TEXT NOT NULL,
+            why_it_matters TEXT NOT NULL,
             confidence TEXT CHECK (confidence IN ('low','medium','high')) NOT NULL DEFAULT 'medium',
             confidence_reasons TEXT,
             next_checks TEXT[] DEFAULT '{}',
@@ -488,16 +493,16 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
             dedup_key TEXT UNIQUE
         );
 
-        CREATE INDEX IF NOT EXISTS ix_insights_org_created ON public.scout_insights (org_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS ix_insights_org_county ON public.scout_insights (org_id, county);
-        CREATE INDEX IF NOT EXISTS ix_insights_org_ops ON public.scout_insights USING gin (operator_keys);
-        CREATE INDEX IF NOT EXISTS ix_insights_org_analytics ON public.scout_insights USING gin ((analytics));
+        CREATE INDEX IF NOT EXISTS ix_insights_org_created ON scout_insights (org_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_insights_org_county ON scout_insights (org_id, county);
+        CREATE INDEX IF NOT EXISTS ix_insights_org_ops ON scout_insights USING gin (operator_keys);
+        CREATE INDEX IF NOT EXISTS ix_insights_org_analytics ON scout_insights USING gin ((analytics));
 
-        CREATE TABLE IF NOT EXISTS public.scout_insight_user_state (
+        CREATE TABLE IF NOT EXISTS scout_insight_user_state (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             org_id TEXT NOT NULL DEFAULT 'default_org',
             user_id TEXT NOT NULL DEFAULT 'default_user',
-            insight_id UUID NOT NULL REFERENCES public.scout_insights(id) ON DELETE CASCADE,
+            insight_id UUID NOT NULL REFERENCES scout_insights(id) ON DELETE CASCADE,
             state TEXT CHECK (state IN ('default','kept','dismissed','archived')) NOT NULL DEFAULT 'default',
             kept_at TIMESTAMPTZ,
             dismissed_at TIMESTAMPTZ,
@@ -508,11 +513,11 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS ux_state_org_user_insight
-            ON public.scout_insight_user_state (org_id, user_id, insight_id);
+            ON scout_insight_user_state (org_id, user_id, insight_id);
         CREATE INDEX IF NOT EXISTS ix_state_filter
-            ON public.scout_insight_user_state (org_id, user_id, state, insight_id);
+            ON scout_insight_user_state (org_id, user_id, state, insight_id);
         CREATE INDEX IF NOT EXISTS ix_state_archived
-            ON public.scout_insight_user_state (org_id, user_id, archived_at);
+            ON scout_insight_user_state (org_id, user_id, archived_at);
 
         -- Ensure field_corrections has org_id column
         DO $$ 
@@ -530,24 +535,40 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
         END $$;
         """
         
-        # Execute DDL with psycopg2
-        with psycopg2.connect(database_url) as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                logger.info("📝 Executing Scout v2.2 DDL...")
-                cur.execute(DDL_SQL)
-                logger.info("✅ DDL execution completed")
+        # Execute DDL
+        if use_psycopg2:
+            # Try psycopg2 approach
+            try:
+                psycopg_url = database_url.replace("postgresql+psycopg", "postgresql") if database_url.startswith("postgresql+psycopg") else database_url
+                with psycopg2.connect(psycopg_url) as conn:
+                    conn.autocommit = True
+                    with conn.cursor() as cur:
+                        logger.info("📝 Executing Scout v2.2 DDL with psycopg2...")
+                        cur.execute(DDL_SQL)
+                        logger.info("✅ psycopg2 DDL execution completed")
+            except Exception as e:
+                logger.warning(f"⚠️ psycopg2 failed: {e}, falling back to SQLAlchemy")
+                use_psycopg2 = False
         
-        # Verify tables were created
-        with psycopg2.connect(database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT table_name FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name IN ('signals', 'scout_insights', 'scout_insight_user_state')
-                    ORDER BY table_name
-                """)
-                tables = [row[0] for row in cur.fetchall()]
+        if not use_psycopg2:
+            # SQLAlchemy fallback
+            engine = create_engine(database_url)
+            with engine.connect() as conn:
+                logger.info("📝 Executing Scout v2.2 DDL with SQLAlchemy...")
+                conn.execute(text(DDL_SQL))
+                conn.commit()
+                logger.info("✅ SQLAlchemy DDL execution completed")
+        
+        # Verify tables were created using SQLAlchemy (always available)
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('signals', 'scout_insights', 'scout_insight_user_state')
+                ORDER BY table_name
+            """))
+            tables = [row[0] for row in result]
         
         if len(tables) >= 2:  # At least signals and scout_insights
             logger.info(f"🎉 SUCCESS: Scout v2.2 tables created! Found: {', '.join(tables)}")
@@ -567,12 +588,17 @@ async def setup_scout_tables(org_id: str = Query("default_org")):
             }
                 
     except Exception as e:
-        logger.error(f"❌ Scout setup failed: {e}", exc_info=True)
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"❌ Scout setup failed: {e}")
+        logger.error(f"📋 Full traceback: {error_details}")
+        
         return {
             "success": False,
             "message": f"Setup failed: {str(e)}",
             "error": str(e),
             "error_type": type(e).__name__,
+            "traceback": error_details,
             "org_id": org_id
         }
 
