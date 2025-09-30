@@ -381,25 +381,38 @@ async def get_scout_stats(org_id: str = Query("default_org")):
 
 @router.post("/setup")
 async def setup_scout_tables():
-    """Manually run Scout table migrations"""
+    """Manually create Scout v2.2 database tables"""
     
     try:
-        from alembic.config import Config
-        from alembic import command
+        import subprocess
         import os
         
-        if os.getenv('DATABASE_URL'):
-            logger.info("Running Scout table migrations...")
-            alembic_cfg = Config("alembic.ini")
-            command.upgrade(alembic_cfg, "head")
-            
+        if not os.getenv('DATABASE_URL'):
+            raise HTTPException(status_code=500, detail="No DATABASE_URL configured")
+        
+        logger.info("Running Scout v2.2 manual database setup...")
+        
+        # Run the manual setup script
+        result = subprocess.run([
+            'python', 'create_scout_tables_manual.py'
+        ], capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            logger.info("✅ Scout tables created successfully")
             return {
                 "success": True,
-                "message": "Scout tables created successfully"
+                "message": "Scout v2.2 tables created successfully! Real insights are now enabled.",
+                "output": result.stdout
             }
         else:
-            raise HTTPException(status_code=500, detail="No DATABASE_URL configured")
+            logger.error(f"❌ Scout setup failed: {result.stderr}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Setup failed: {result.stderr}"
+            )
             
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Setup timed out after 60 seconds")
     except Exception as e:
         logger.error(f"Error setting up Scout tables: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Setup failed: {e}")

@@ -156,6 +156,40 @@ class ScoutWidget {
             this.showError(`Demo insights failed: ${error.message}`);
         }
     }
+    
+    async setupDatabase() {
+        try {
+            this.showInfo('🔧 Setting up Scout v2.2 database tables... This may take 30-60 seconds.');
+            
+            const response = await fetch('/api/v1/scout/setup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess('🎉 Database setup complete! Scout v2.2 is now ready for real insights. Try "All Sources" again!');
+                console.log('✅ Database setup output:', data.output);
+                
+                // Automatically try to load real insights
+                setTimeout(() => {
+                    this.loadInsights();
+                }, 2000);
+            } else {
+                throw new Error(data.detail || 'Database setup failed');
+            }
+        } catch (error) {
+            console.error('Error setting up database:', error);
+            this.showError(`Database setup failed: ${error.message}. You can continue using demo mode.`);
+        }
+    }
 
     renderInsights() {
         const container = document.getElementById('scoutInsightsContainer');
@@ -548,6 +582,11 @@ class ScoutWidget {
                     <button onclick="scoutWidget.loadDemoInsights()" 
                             style="background-color: #6f42c1; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
                         🚀 Demo v2.2
+                    </button>
+                    
+                    <button onclick="scoutWidget.setupDatabase()" 
+                            style="background-color: #dc2626; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                        🔧 Fix Database
                     </button>
                 </div>
             </div>
