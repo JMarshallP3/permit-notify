@@ -404,9 +404,27 @@ async def setup_scout_tables():
         logger.error(f"Error setting up Scout tables: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
 
+@router.post("/crawl/all")
+async def trigger_all_sources_crawl(org_id: str = Query("default_org")):
+    """Scout v2.2: Crawl all sources (news, PR, SEC, social, forums, gov bulletins)"""
+    try:
+        from services.scout.scout_service import ScoutService
+        
+        scout_service = ScoutService(org_id)
+        results = await scout_service.crawl_all_sources()
+        
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Crawled {results['total_crawled']} items from all sources, created {results['signals_created']} signals, generated {results['insights_created']} insights"
+        }
+    except Exception as e:
+        logger.error(f"Error during all-sources crawl: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Crawl failed: {e}")
+
 @router.post("/crawl/mrf")
 async def trigger_mrf_crawl(org_id: str = Query("default_org")):
-    """Manually trigger MRF crawling for testing"""
+    """Legacy MRF-only crawling"""
     
     try:
         from services.scout.scout_service import ScoutService

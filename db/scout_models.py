@@ -12,11 +12,25 @@ import enum
 
 from db.session import Base
 
+class SourceType(enum.Enum):
+    FORUM = "forum"
+    NEWS = "news"
+    PR = "pr"
+    FILING = "filing"
+    GOV_BULLETIN = "gov_bulletin"
+    BLOG = "blog"
+    SOCIAL = "social"
+    OTHER = "other"
+
 class ClaimType(enum.Enum):
-    CONFIRMED = "confirmed"
-    LIKELY = "likely" 
     RUMOR = "rumor"
-    SPECULATION = "speculation"
+    LIKELY = "likely"
+    CONFIRMED = "confirmed"
+
+class Timeframe(enum.Enum):
+    PAST = "past"
+    NOW = "now"
+    NEXT_90D = "next_90d"
 
 class ConfidenceLevel(enum.Enum):
     LOW = "low"
@@ -37,7 +51,7 @@ class Signal(Base):
     org_id = Column(String(50), nullable=False, index=True)
     found_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     source_url = Column(Text, nullable=False)
-    source_type = Column(String(50), nullable=False)  # 'mrf', 'press_release', 'sec_filing', etc.
+    source_type = Column(Enum(SourceType), nullable=False)
     state = Column(String(2), nullable=True)  # TX, OK, etc.
     county = Column(String(100), nullable=True, index=True)
     play_basin = Column(String(100), nullable=True)
@@ -48,7 +62,7 @@ class Signal(Base):
     keywords = Column(ARRAY(String), nullable=False, default=list)
     
     claim_type = Column(Enum(ClaimType), nullable=False, default=ClaimType.RUMOR)
-    timeframe = Column(String(100), nullable=True)  # "Q1 2024", "next 60 days", etc.
+    timeframe = Column(Enum(Timeframe), nullable=True)
     summary = Column(Text, nullable=False)
     raw_excerpt = Column(Text, nullable=True)
     
@@ -73,8 +87,8 @@ class ScoutInsight(Base):
     
     # Content fields
     title = Column(String(90), nullable=False)  # ≤90 chars per spec
-    what_happened = Column(Text, nullable=False)  # JSON array of facts
-    why_it_matters = Column(Text, nullable=False)  # JSON array of impacts
+    what_happened = Column(Text, nullable=False)  # Markdown text
+    why_it_matters = Column(Text, nullable=False)  # Markdown text
     
     confidence = Column(Enum(ConfidenceLevel), nullable=False)
     confidence_reasons = Column(Text, nullable=False)  # JSON array of reasons

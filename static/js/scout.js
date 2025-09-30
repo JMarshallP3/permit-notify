@@ -53,15 +53,43 @@ class ScoutWidget {
             const data = await response.json();
             
             if (data.success) {
-                this.showSuccess(`Crawl completed! ${data.message}`);
+                this.showSuccess(`MRF crawl completed! ${data.message}`);
                 // Reload insights to show new ones
                 await this.loadInsights();
             } else {
-                throw new Error(data.detail || 'Crawl failed');
+                throw new Error(data.detail || 'MRF crawl failed');
             }
         } catch (error) {
-            console.error('Error during test crawl:', error);
-            this.showError(`Crawl failed: ${error.message}`);
+            console.error('Error during MRF test crawl:', error);
+            this.showError(`MRF crawl failed: ${error.message}`);
+        }
+    }
+    
+    async testCrawlAll() {
+        try {
+            this.showInfo('Starting all-sources crawl (news, PR, SEC, social, forums, gov bulletins)... This may take 60-120 seconds.');
+            
+            const response = await fetch('/api/v1/scout/crawl/all?org_id=default_org', {
+                method: 'POST'
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess(`All-sources crawl completed! ${data.message}`);
+                console.log('📊 Crawl results by source:', data.results.sources);
+                // Reload insights to show new ones
+                await this.loadInsights();
+            } else {
+                throw new Error(data.detail || 'All-sources crawl failed');
+            }
+        } catch (error) {
+            console.error('Error during all-sources test crawl:', error);
+            this.showError(`All-sources crawl failed: ${error.message}`);
         }
     }
 
@@ -170,23 +198,48 @@ class ScoutWidget {
     renderAnalyticsChips(analytics) {
         const chips = [];
         
+        // Velocity indicators
         if (analytics.permit_velocity_7d) {
-            chips.push(`<span class="analytics-chip">7d velocity ${analytics.permit_velocity_7d}</span>`);
+            const velocity = analytics.permit_velocity_7d;
+            const velocityClass = velocity > 0.5 ? 'high-velocity' : '';
+            chips.push(`<span class="analytics-chip ${velocityClass}">7d velocity: ${velocity}/day</span>`);
         }
+        
+        if (analytics.permit_velocity_30d) {
+            const velocity = analytics.permit_velocity_30d;
+            const velocityClass = velocity > 0.3 ? 'high-velocity' : '';
+            chips.push(`<span class="analytics-chip ${velocityClass}">30d velocity: ${velocity}/day</span>`);
+        }
+        
+        // Breakout detection
         if (analytics.is_breakout) {
-            chips.push(`<span class="analytics-chip breakout">Breakout</span>`);
+            const zscore = analytics.breakout_zscore ? ` (z=${analytics.breakout_zscore})` : '';
+            chips.push(`<span class="analytics-chip breakout">🚀 Breakout${zscore}</span>`);
         }
-        if (analytics.new_operator) {
-            chips.push(`<span class="analytics-chip">New operator</span>`);
+        
+        // Operator status
+        if (analytics.is_new_operator) {
+            chips.push(`<span class="analytics-chip new-operator">🆕 New operator</span>`);
         }
+        
+        // Activity prediction
         if (analytics.near_term_activity) {
-            chips.push(`<span class="analytics-chip">Near-term 30-60d</span>`);
+            chips.push(`<span class="analytics-chip activity">📅 Near-term activity</span>`);
         }
-        if (analytics.median_lag_permit_to_spud_days) {
-            chips.push(`<span class="analytics-chip">~${analytics.median_lag_permit_to_spud_days}d to spud</span>`);
+        
+        // Timing metrics
+        if (analytics.median_days_permit_to_spud) {
+            chips.push(`<span class="analytics-chip timing">⏱️ ${analytics.median_days_permit_to_spud}d to spud</span>`);
+        }
+        
+        // Agreement score
+        if (analytics.agreement_score) {
+            const score = Math.round(analytics.agreement_score * 100);
+            const scoreClass = score >= 80 ? 'high-agreement' : score >= 60 ? 'medium-agreement' : 'low-agreement';
+            chips.push(`<span class="analytics-chip ${scoreClass}">🤝 ${score}% agreement</span>`);
         }
 
-        return chips.join('');
+        return chips.join(' ');
     }
 
     async toggleKeep(insightId, shouldKeep) {
@@ -384,6 +437,19 @@ class ScoutWidget {
                     <input type="text" placeholder="Operator..." value="${this.filters.operator}" 
                            onchange="scoutWidget.updateFilter('operator', this.value)">
                     
+                    <select onchange="scoutWidget.updateFilter('source_type', this.value)">
+                        <option value="">All Sources</option>
+                        <option value="filing" ${this.filters.source_type === 'filing' ? 'selected' : ''}>SEC/Filings</option>
+                        <option value="gov_bulletin" ${this.filters.source_type === 'gov_bulletin' ? 'selected' : ''}>Gov Bulletins</option>
+                        <option value="pr" ${this.filters.source_type === 'pr' ? 'selected' : ''}>Press Releases</option>
+                        <option value="news" ${this.filters.source_type === 'news' ? 'selected' : ''}>News</option>
+                        <option value="forum" ${this.filters.source_type === 'forum' ? 'selected' : ''}>Forums</option>
+                        <option value="social" ${this.filters.source_type === 'social' ? 'selected' : ''}>Social/X</option>
+                        <option value="blog" ${this.filters.source_type === 'blog' ? 'selected' : ''}>Blogs</option>
+                    </select>
+                </div>
+                
+                <div class="filter-row">
                     <label>
                         <input type="checkbox" ${this.filters.breakouts_only ? 'checked' : ''} 
                                onchange="scoutWidget.updateFilter('breakouts_only', this.checked)">
@@ -391,8 +457,13 @@ class ScoutWidget {
                     </label>
                     
                     <button onclick="scoutWidget.testCrawl()" 
-                            style="background-color: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px;">
-                        🕷️ Test Crawl MRF
+                            style="background-color: #28a745; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-size: 12px;">
+                        🕷️ MRF
+                    </button>
+                    
+                    <button onclick="scoutWidget.testCrawlAll()" 
+                            style="background-color: #007bff; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                        🌐 All Sources
                     </button>
                 </div>
             </div>

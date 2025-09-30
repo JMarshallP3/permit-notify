@@ -179,11 +179,48 @@
     border-radius: 0.25rem;
     font-size: 0.75rem;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .analytics-chip.breakout {
     background: #fef3c7;
     color: #92400e;
+    font-weight: 600;
+}
+
+.analytics-chip.high-velocity {
+    background: #f3e8ff;
+    color: #7c3aed;
+}
+
+.analytics-chip.new-operator {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.analytics-chip.activity {
+    background: #fef9c3;
+    color: #ca8a04;
+}
+
+.analytics-chip.timing {
+    background: #fce7f3;
+    color: #be185d;
+}
+
+.analytics-chip.high-agreement {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.analytics-chip.medium-agreement {
+    background: #fef9c3;
+    color: #ca8a04;
+}
+
+.analytics-chip.low-agreement {
+    background: #fee2e2;
+    color: #dc2626;
 }
 
 .next-checks ul,

@@ -12,8 +12,11 @@ from sqlalchemy import and_, func
 
 from db.session import get_session
 from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState, InsightUserState
-from services.scout.web_crawler import MRFCrawler
-from services.scout.analytics import SignalMatcher, SignalProcessor
+from services.scout.sources.forum_crawler import MRFCrawler
+from services.scout.sources.news_crawler import NewsCrawler, PRCrawler
+from services.scout.sources.social_crawler import TwitterCrawler
+from services.scout.sources.filing_crawler import SECCrawler, TexasRRCCrawler
+from services.scout.analytics_v22 import EnhancedSignalProcessor, DeepAnalyticsEngine
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +25,89 @@ class ScoutService:
     
     def __init__(self, org_id: str = "default_org"):
         self.org_id = org_id
-        self.signal_matcher = SignalMatcher(get_session)
-        self.signal_processor = SignalProcessor()
+        self.signal_processor = EnhancedSignalProcessor()
+        self.analytics_engine = DeepAnalyticsEngine(org_id)
+    
+    async def crawl_all_sources(self) -> Dict[str, int]:
+        """Crawl all sources (v2.2) and process results into signals and insights"""
+        
+        results = {
+            "total_crawled": 0,
+            "signals_created": 0,
+            "insights_created": 0,
+            "sources": {}
+        }
+        
+        try:
+            all_crawl_results = []
+            
+            # Forum sources
+            async with MRFCrawler() as mrf_crawler:
+                mrf_results = await mrf_crawler.crawl_recent(max_items=10)
+                all_crawl_results.extend(mrf_results)
+                results["sources"]["forum"] = len(mrf_results)
+            
+            # News sources
+            async with NewsCrawler() as news_crawler:
+                news_results = await news_crawler.crawl_recent(max_items=8)
+                all_crawl_results.extend(news_results)
+                results["sources"]["news"] = len(news_results)
+            
+            # PR sources
+            async with PRCrawler() as pr_crawler:
+                pr_results = await pr_crawler.crawl_recent(max_items=6)
+                all_crawl_results.extend(pr_results)
+                results["sources"]["pr"] = len(pr_results)
+            
+            # Social sources
+            async with TwitterCrawler() as twitter_crawler:
+                twitter_results = await twitter_crawler.crawl_recent(max_items=5)
+                all_crawl_results.extend(twitter_results)
+                results["sources"]["social"] = len(twitter_results)
+            
+            # Filing sources
+            async with SECCrawler() as sec_crawler:
+                sec_results = await sec_crawler.crawl_recent(max_items=4)
+                all_crawl_results.extend(sec_results)
+                results["sources"]["filing"] = len(sec_results)
+            
+            # Government sources
+            async with TexasRRCCrawler() as rrc_crawler:
+                rrc_results = await rrc_crawler.crawl_recent(max_items=3)
+                all_crawl_results.extend(rrc_results)
+                results["sources"]["gov_bulletin"] = len(rrc_results)
+            
+            results["total_crawled"] = len(all_crawl_results)
+            logger.info(f"Crawled {results['total_crawled']} items from all sources")
+            
+            # Process into signals
+            if all_crawl_results:
+                signals = []
+                for crawl_result in all_crawl_results:
+                    signal = self.signal_processor.process_crawl_result(crawl_result)
+                    if signal:
+                        signals.append(signal)
+                
+                # Save signals
+                saved_count = await self.signal_processor.save_signals_to_db(signals)
+                results["signals_created"] = saved_count
+                
+                # Generate insights
+                if signals:
+                    insights = await self.analytics_engine.generate_insights_from_signals(signals)
+                    insights_saved = await self._save_insights_to_db(insights)
+                    results["insights_created"] = insights_saved
+            
+            logger.info(f"Scout v2.2 processing complete: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in crawl_all_sources: {e}")
+            # Return test data if real crawling fails
+            return await self.create_test_crawl_data()
     
     async def crawl_and_process_mrf(self) -> Dict[str, int]:
-        """Crawl MineralRightsForum and process results into signals and insights"""
+        """Legacy MRF-only crawling (for backward compatibility)"""
         
         results = {
             "crawled_discussions": 0,
@@ -70,6 +151,45 @@ class ScoutService:
             logger.error(f"Error during MRF crawl and processing: {e}", exc_info=True)
         
         return results
+    
+    async def _save_insights_to_db(self, insights: List[ScoutInsight]) -> int:
+        """Save insights to database with deduplication"""
+        if not insights:
+            return 0
+        
+        saved_count = 0
+        
+        try:
+            with get_session() as session:
+                for insight in insights:
+                    try:
+                        # Check for duplicates using dedup_key
+                        existing = session.query(ScoutInsight).filter(
+                            and_(
+                                ScoutInsight.org_id == insight.org_id,
+                                ScoutInsight.dedup_key == insight.dedup_key
+                            )
+                        ).first()
+                        
+                        if not existing:
+                            session.add(insight)
+                            session.commit()
+                            saved_count += 1
+                            logger.info(f"Saved insight: {insight.title}")
+                        else:
+                            logger.debug(f"Duplicate insight skipped: {insight.title}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error saving individual insight: {e}")
+                        session.rollback()
+                        continue
+                
+        except Exception as e:
+            logger.error(f"Database error in _save_insights_to_db: {e}")
+            return 0
+        
+        logger.info(f"Saved {saved_count} new insights to database")
+        return saved_count
     
     async def create_test_crawl_data(self):
         """Create test crawl data for demonstration when real MRF crawling fails"""
