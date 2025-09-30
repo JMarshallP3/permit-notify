@@ -1746,10 +1746,24 @@ class PermitDashboard {
                 console.warn('Manual mapping modal not found for closing');
             }
             
+            // Update local permit data immediately to prevent orange card issue
+            const permit = this.permits.find(p => p.status_no === statusNo);
+            if (permit) {
+                permit.field_name = correctFieldName;
+                console.log(`Updated local permit ${statusNo} field_name to: ${correctFieldName}`);
+            }
+            
+            // Update reservoir mapping to prevent "new reservoir" detection
+            this.reservoirMapping[correctFieldName] = correctReservoir;
+            localStorage.setItem('reservoirMapping', JSON.stringify(this.reservoirMapping));
+            
             // Remove from review queue
             this.removeSinglePermitFromReview(oldFieldName, statusNo);
             
-            // Refresh data
+            // Refresh UI immediately
+            this.applyFilters();
+            
+            // Refresh data from server (but don't wait for it)
             setTimeout(() => {
                 if (successMsg && successMsg.parentNode) {
                     document.body.removeChild(successMsg);
@@ -4977,7 +4991,11 @@ class OptimizedDashboard extends PermitDashboard {
     // Count permits with the same field name (excluding current permit)
     async countPermitsWithSameFieldName(fieldName, excludeStatusNo) {
         try {
-            const response = await fetch(`/api/v1/permits/count-by-field?field_name=${encodeURIComponent(fieldName)}&exclude_status_no=${excludeStatusNo}`);
+            const encodedFieldName = encodeURIComponent(fieldName);
+            const url = `/api/v1/permits/count-by-field?field_name=${encodedFieldName}&exclude_status_no=${excludeStatusNo}`;
+            console.log(`🔍 Count permits API call - Original: "${fieldName}", Encoded: "${encodedFieldName}", URL: ${url}`);
+            
+            const response = await fetch(url);
             if (!response.ok) {
                 console.error(`Count permits API error: ${response.status} ${response.statusText}`);
                 // Try to get error details
