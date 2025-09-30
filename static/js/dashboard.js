@@ -4907,6 +4907,188 @@ class OptimizedDashboard extends PermitDashboard {
         }
     }
 
+    async showTrends() {
+        console.log('📊 Opening Trends modal...');
+        
+        // Create mobile modal for trends with charts
+        const modal = document.createElement('div');
+        modal.className = 'mobile-modal-overlay trends-modal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 0.5rem;';
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 100%; height: 95vh; position: relative; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 1rem; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: white; border-radius: 1rem 1rem 0 0; z-index: 10;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #1f2937;">📊 Reservoir Trends</h2>
+                        <button onclick="this.closest('.trends-modal').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
+                    </div>
+                </div>
+                
+                <!-- Mobile Controls -->
+                <div style="padding: 0.75rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                        <select id="mobileTimeRange" style="padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.75rem; flex: 1; min-width: 100px;">
+                            <option value="7">7 Days</option>
+                            <option value="30">30 Days</option>
+                            <option value="90" selected>90 Days</option>
+                        </select>
+                        <select id="mobileViewType" style="padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.75rem; flex: 1; min-width: 100px;">
+                            <option value="daily">Daily</option>
+                            <option value="cumulative">Cumulative</option>
+                        </select>
+                        <button id="mobileRefreshChart" style="padding: 0.5rem 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.7rem;">
+                            🔄
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Chart Container -->
+                <div style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+                    <div style="flex: 1; position: relative; min-height: 300px;">
+                        <canvas id="mobileReservoirChart" style="width: 100%; height: 100%;"></canvas>
+                    </div>
+                    
+                    <!-- Loading indicator -->
+                    <div id="mobileChartLoading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #6b7280; font-size: 0.875rem;">
+                        Loading chart data...
+                    </div>
+                </div>
+                
+                <!-- Legend/Stats -->
+                <div id="mobileTrendStats" style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: #f8fafc; max-height: 120px; overflow-y: auto;">
+                    <div style="color: #6b7280; text-align: center; font-size: 0.75rem;">Chart will load here...</div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+        
+        // Load initial chart
+        await this.loadMobileTrendsChart();
+        
+        // Set up event listeners for controls
+        document.getElementById('mobileTimeRange').addEventListener('change', () => this.loadMobileTrendsChart());
+        document.getElementById('mobileViewType').addEventListener('change', () => this.loadMobileTrendsChart());
+        document.getElementById('mobileRefreshChart').addEventListener('click', () => this.loadMobileTrendsChart());
+    }
+
+    async loadMobileTrendsChart() {
+        const loadingEl = document.getElementById('mobileChartLoading');
+        const statsEl = document.getElementById('mobileTrendStats');
+        
+        if (loadingEl) loadingEl.style.display = 'block';
+        
+        try {
+            const timeRange = document.getElementById('mobileTimeRange')?.value || '90';
+            const viewType = document.getElementById('mobileViewType')?.value || 'daily';
+            
+            // Get reservoir mappings from localStorage
+            const reservoirMappings = JSON.parse(localStorage.getItem('reservoirMapping') || '{}');
+            
+            const response = await fetch(`/api/v1/reservoir-trends?days=${timeRange}&view_type=${viewType}&mappings=${encodeURIComponent(JSON.stringify(reservoirMappings))}`);
+            const result = await response.json();
+            
+            if (!result.success) {
+                throw new Error('Failed to load trend data');
+            }
+            
+            const chartData = result.data;
+            
+            // Create or update chart
+            const canvas = document.getElementById('mobileReservoirChart');
+            const ctx = canvas.getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (window.mobileTrendsChart) {
+                window.mobileTrendsChart.destroy();
+            }
+            
+            // Create new chart with mobile-optimized settings
+            window.mobileTrendsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.labels,
+                    datasets: chartData.datasets.slice(0, 5) // Limit to top 5 for mobile
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false // Hide legend to save space
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            titleFont: { size: 11 },
+                            bodyFont: { size: 10 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                font: { size: 9 },
+                                maxTicksLimit: 6 // Limit x-axis labels for mobile
+                            }
+                        },
+                        y: {
+                            display: true,
+                            ticks: {
+                                font: { size: 9 }
+                            }
+                        }
+                    },
+                    elements: {
+                        point: {
+                            radius: 2,
+                            hoverRadius: 4
+                        },
+                        line: {
+                            borderWidth: 2
+                        }
+                    }
+                }
+            });
+            
+            // Update stats section with legend
+            if (statsEl) {
+                const topReservoirs = chartData.datasets.slice(0, 5);
+                statsEl.innerHTML = `
+                    <div style="font-size: 0.7rem; font-weight: 600; margin-bottom: 0.5rem; color: #374151;">Top Reservoirs (${viewType}):</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem;">
+                        ${topReservoirs.map(dataset => {
+                            const total = dataset.data.reduce((sum, val) => sum + val, 0);
+                            return `
+                                <div style="display: flex; align-items: center; gap: 0.25rem;">
+                                    <div style="width: 8px; height: 8px; border-radius: 50%; background: ${dataset.borderColor};"></div>
+                                    <span style="font-size: 0.65rem; color: #374151; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${dataset.label}</span>
+                                    <span style="font-size: 0.65rem; font-weight: 600; color: #3b82f6;">${total}</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+            
+            if (loadingEl) loadingEl.style.display = 'none';
+            
+        } catch (error) {
+            console.error('Error loading mobile trends chart:', error);
+            if (loadingEl) {
+                loadingEl.innerHTML = 'Error loading chart data';
+                loadingEl.style.color = '#ef4444';
+            }
+        }
+    }
+
     showMobileFilters() {
         // Create modal for mobile filters
         const modal = document.createElement('div');
