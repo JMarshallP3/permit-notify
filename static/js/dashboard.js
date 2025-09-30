@@ -1853,8 +1853,9 @@ class PermitDashboard {
             // Clean up common suffixes
             reservoirName = reservoirName.replace(/\s+(trend\s+area|formation|shale|chalk|sand|lime)$/i, '').trim();
             
-            // Add to saved mappings (local storage)
-            this.addToSavedMappings(fieldName, reservoirName.toUpperCase());
+            // Add to reservoir mappings (this is what the card rendering checks)
+            this.reservoirMapping[fieldName] = reservoirName.toUpperCase();
+            localStorage.setItem('reservoirMapping', JSON.stringify(this.reservoirMapping));
             
             // Save to database for learning and persistence
             try {
