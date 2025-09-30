@@ -8,7 +8,8 @@ import aiohttp
 import time
 import re
 import logging
-from urllib.parse import urljoin, urlparse, robots
+import hashlib
+from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timezone
@@ -80,6 +81,201 @@ class RobotsChecker:
         except:
             # If anything goes wrong, err on the side of caution
             return True
+
+class MRFCrawler:
+    """Specialized crawler for MineralRightsForum"""
+    
+    def __init__(self, user_agent: str = "ScoutBot/1.0 (PermitTracker Scout; +https://permittracker.com/scout)"):
+        self.user_agent = user_agent
+        self.rate_limiter = RateLimiter(requests_per_second=0.3)  # Be extra polite to MRF
+        self.base_url = "https://www.mineralrightsforum.com"
+        self.session = None
+    
+    async def __aenter__(self):
+        import aiohttp
+        self.session = aiohttp.ClientSession(
+            headers={'User-Agent': self.user_agent},
+            timeout=aiohttp.ClientTimeout(total=30)
+        )
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+    
+    async def crawl_recent_discussions(self, max_pages: int = 2) -> List[CrawlResult]:
+        """Crawl recent discussions from MRF main forum"""
+        results = []
+        
+        # Start with the main discussions page
+        discussions_urls = [
+            f"{self.base_url}/discussions",
+            f"{self.base_url}/categories/oil-gas-mineral-rights-questions",
+            f"{self.base_url}/categories/lease-bonus-royalty-discussions"
+        ]
+        
+        for base_url in discussions_urls:
+            for page in range(1, max_pages + 1):
+                await self.rate_limiter.wait()
+                
+                page_url = f"{base_url}?page={page}" if page > 1 else base_url
+                
+                try:
+                    async with self.session.get(page_url) as response:
+                        if response.status != 200:
+                            logger.warning(f"Failed to fetch MRF page {page_url}: HTTP {response.status}")
+                            continue
+                        
+                        html = await response.text()
+                        soup = BeautifulSoup(html, 'html.parser')
+                        
+                        # Extract discussion links (adjust selectors based on actual MRF HTML)
+                        discussion_links = []
+                        
+                        # Common selectors for discussion links
+                        link_selectors = [
+                            'a[href*="/discussion/"]',
+                            'a[href*="/d/"]',
+                            '.discussion-title a',
+                            '.item-title a'
+                        ]
+                        
+                        for selector in link_selectors:
+                            links = soup.select(selector)
+                            for link in links:
+                                href = link.get('href')
+                                if href:
+                                    full_url = urljoin(self.base_url, href)
+                                    if full_url not in [r.url for r in results]:  # Avoid duplicates
+                                        discussion_links.append(full_url)
+                        
+                        # Crawl individual discussions (limit to avoid overwhelming)
+                        for discussion_url in discussion_links[:3]:  # Limit per page
+                            await self.rate_limiter.wait()
+                            discussion_result = await self.crawl_discussion(discussion_url)
+                            if discussion_result.success and len(discussion_result.content) > 100:
+                                results.append(discussion_result)
+                                logger.info(f"Successfully crawled MRF discussion: {discussion_result.title[:50]}...")
+                                
+                except Exception as e:
+                    logger.error(f"Error crawling MRF page {page_url}: {e}")
+                    continue
+        
+        return results
+    
+    async def crawl_discussion(self, url: str) -> CrawlResult:
+        """Crawl a single MRF discussion thread"""
+        try:
+            async with self.session.get(url) as response:
+                if response.status != 200:
+                    return CrawlResult(
+                        url=url, title="", content="", post_date=None, links=[],
+                        success=False, error=f"HTTP {response.status}"
+                    )
+                
+                html = await response.text()
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                # Extract discussion title
+                title = ""
+                title_selectors = [
+                    'h1.discussion-title',
+                    'h1',
+                    '.discussion-name',
+                    '.item-title',
+                    'title'
+                ]
+                
+                for selector in title_selectors:
+                    title_elem = soup.select_one(selector)
+                    if title_elem:
+                        title = title_elem.get_text().strip()
+                        if len(title) > 10:  # Ensure meaningful title
+                            break
+                
+                # Extract posts content
+                posts_content = []
+                post_selectors = [
+                    '.message .message-body',
+                    '.comment-body',
+                    '.item-body .message',
+                    '.post-content',
+                    '.user-content'
+                ]
+                
+                for selector in post_selectors:
+                    posts = soup.select(selector)
+                    if posts:
+                        for post in posts[:5]:  # Limit posts per discussion
+                            # Remove unwanted elements
+                            for unwanted in post.select('nav, .signature, .ads, script, style, .quote'):
+                                unwanted.decompose()
+                            
+                            post_text = post.get_text()
+                            post_text = re.sub(r'\s+', ' ', post_text).strip()
+                            if len(post_text) > 50:  # Only meaningful posts
+                                posts_content.append(post_text)
+                        break
+                
+                # Combine all post content
+                content = f"Discussion: {title}\n\n" + "\n\n---\n\n".join(posts_content)
+                
+                # Extract links
+                links = []
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
+                    if href.startswith('http'):
+                        links.append(href)
+                    elif href.startswith('/'):
+                        links.append(urljoin(self.base_url, href))
+                
+                # Try to extract date
+                post_date = self.extract_mrf_date(soup)
+                
+                return CrawlResult(
+                    url=url, title=title, content=content,
+                    post_date=post_date, links=links, success=True
+                )
+                
+        except Exception as e:
+            logger.error(f"Error crawling MRF discussion {url}: {e}")
+            return CrawlResult(
+                url=url, title="", content="", post_date=None, links=[],
+                success=False, error=str(e)
+            )
+    
+    def extract_mrf_date(self, soup: BeautifulSoup) -> Optional[datetime]:
+        """Extract date from MRF post"""
+        # Look for common MRF date patterns
+        date_selectors = [
+            'time[datetime]',
+            '.date-time',
+            '.post-date',
+            '.timestamp',
+            '.meta-item time'
+        ]
+        
+        for selector in date_selectors:
+            date_elem = soup.select_one(selector)
+            if date_elem:
+                date_str = date_elem.get('datetime') or date_elem.get_text().strip()
+                if date_str:
+                    try:
+                        # Try parsing ISO format first
+                        if 'T' in date_str:
+                            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        
+                        # Try other common formats
+                        for fmt in ['%Y-%m-%d %H:%M:%S', '%m/%d/%Y', '%B %d, %Y', '%b %d, %Y']:
+                            try:
+                                return datetime.strptime(date_str, fmt).replace(tzinfo=timezone.utc)
+                            except:
+                                continue
+                    except:
+                        pass
+        
+        # Default to current time if no date found
+        return datetime.now(timezone.utc)
 
 class WebCrawler:
     """Main web crawler for Scout signals"""

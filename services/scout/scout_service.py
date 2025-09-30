@@ -12,17 +12,81 @@ from sqlalchemy import and_, func
 
 from db.session import get_session
 from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState, InsightUserState
-from services.scout.web_crawler import WebCrawler
-from services.scout.analytics import SignalMatcher
+from services.scout.web_crawler import MRFCrawler
+from services.scout.analytics import SignalMatcher, SignalProcessor
 
 logger = logging.getLogger(__name__)
 
 class ScoutService:
     """Main Scout service for processing signals and generating insights"""
     
-    def __init__(self):
-        self.signal_matcher = SignalMatcher()
+    def __init__(self, org_id: str = "default_org"):
+        self.org_id = org_id
+        self.signal_matcher = SignalMatcher(get_session)
+        self.signal_processor = SignalProcessor()
     
+    async def crawl_and_process_mrf(self) -> Dict[str, int]:
+        """Crawl MineralRightsForum and process results into signals and insights"""
+        
+        results = {
+            "crawled_discussions": 0,
+            "signals_created": 0,
+            "insights_created": 0
+        }
+        
+        try:
+            # Crawl MRF
+            async with MRFCrawler() as crawler:
+                crawl_results = await crawler.crawl_recent_discussions(max_pages=2)
+                results["crawled_discussions"] = len(crawl_results)
+                
+                if not crawl_results:
+                    logger.info("No new MRF discussions found")
+                    return results
+                
+                logger.info(f"Crawled {len(crawl_results)} MRF discussions")
+                
+                # Process crawl results into signals
+                signals = []
+                for crawl_result in crawl_results:
+                    signal = self.signal_processor.process_crawl_result(crawl_result, self.org_id)
+                    if signal:
+                        signals.append(signal)
+                
+                # Save signals to database
+                if signals:
+                    saved_count = await self.signal_processor.save_signals_to_db(signals)
+                    results["signals_created"] = saved_count
+                    logger.info(f"Created {saved_count} new signals from MRF crawl")
+                    
+                    # Generate insights from new signals
+                    insights_count = await self.process_signals_to_insights(signals)
+                    results["insights_created"] = insights_count
+                    logger.info(f"Generated {insights_count} insights from signals")
+                
+        except Exception as e:
+            logger.error(f"Error during MRF crawl and processing: {e}", exc_info=True)
+        
+        return results
+    
+    async def process_signals_to_insights(self, signals: List[Signal]) -> int:
+        """Process signals into insights"""
+        insights_created = 0
+        
+        with get_session() as session:
+            for signal in signals:
+                try:
+                    insight = self.signal_matcher.generate_insight_from_signal(signal)
+                    if insight:
+                        session.add(insight)
+                        insights_created += 1
+                except Exception as e:
+                    logger.error(f"Error generating insight from signal {signal.id}: {e}")
+            
+            session.commit()
+        
+        return insights_created
+
     async def process_new_signals(self, org_id: str = "default_org") -> int:
         """Process new signals and generate insights"""
         

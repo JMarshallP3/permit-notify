@@ -378,3 +378,23 @@ async def get_scout_stats(org_id: str = Query("default_org")):
             }
         else:
             raise HTTPException(status_code=500, detail=f"Failed to get stats: {e}")
+
+@router.post("/crawl/mrf")
+async def trigger_mrf_crawl(org_id: str = Query("default_org")):
+    """Manually trigger MRF crawling for testing"""
+    
+    try:
+        from services.scout.scout_service import ScoutService
+        
+        scout_service = ScoutService(org_id)
+        results = await scout_service.crawl_and_process_mrf()
+        
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Crawled {results['crawled_discussions']} discussions, created {results['signals_created']} signals, generated {results['insights_created']} insights"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error during manual MRF crawl: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Crawl failed: {e}")
