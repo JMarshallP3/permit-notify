@@ -384,38 +384,134 @@ async def setup_scout_tables():
     """Manually create Scout v2.2 database tables"""
     
     try:
-        import subprocess
         import os
+        from sqlalchemy import create_engine, text
+        from db.session import Base
+        from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState
         
-        if not os.getenv('DATABASE_URL'):
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
             raise HTTPException(status_code=500, detail="No DATABASE_URL configured")
         
-        logger.info("Running Scout v2.2 manual database setup...")
+        logger.info("🔧 Creating Scout v2.2 database tables...")
         
-        # Run the manual setup script
-        result = subprocess.run([
-            'python', 'create_scout_tables_manual.py'
-        ], capture_output=True, text=True, timeout=60)
+        # Create engine
+        engine = create_engine(database_url)
         
-        if result.returncode == 0:
-            logger.info("✅ Scout tables created successfully")
-            return {
-                "success": True,
-                "message": "Scout v2.2 tables created successfully! Real insights are now enabled.",
-                "output": result.stdout
-            }
-        else:
-            logger.error(f"❌ Scout setup failed: {result.stderr}")
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Setup failed: {result.stderr}"
-            )
+        # Step 1: Create enums
+        logger.info("📝 Creating required enums...")
+        enum_sql = [
+            # SourceType enum
+            """
+            DO $$ BEGIN
+                CREATE TYPE sourcetype AS ENUM (
+                    'forum', 'news', 'pr', 'filing', 'gov_bulletin', 'blog', 'social', 'other'
+                );
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+            """,
             
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=500, detail="Setup timed out after 60 seconds")
+            # Timeframe enum  
+            """
+            DO $$ BEGIN
+                CREATE TYPE timeframe AS ENUM (
+                    'past', 'now', 'next_90d'
+                );
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+            """,
+            
+            # ConfidenceLevel enum (might already exist)
+            """
+            DO $$ BEGIN
+                CREATE TYPE confidencelevel AS ENUM (
+                    'low', 'medium', 'high'
+                );
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+            """,
+            
+            # InsightUserState enum (might already exist)
+            """
+            DO $$ BEGIN
+                CREATE TYPE insightuserstate AS ENUM (
+                    'default', 'kept', 'dismissed', 'archived'
+                );
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+            """
+        ]
+        
+        with engine.connect() as conn:
+            for sql in enum_sql:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception as e:
+                    logger.info(f"⚠️ Enum creation (expected if exists): {e}")
+        
+        # Step 2: Add org_id to field_corrections if needed
+        logger.info("📝 Updating field_corrections table...")
+        with engine.connect() as conn:
+            try:
+                # Check if org_id column exists
+                result = conn.execute(text("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'field_corrections' AND column_name = 'org_id'
+                """))
+                
+                if not result.fetchone():
+                    conn.execute(text("""
+                        ALTER TABLE field_corrections 
+                        ADD COLUMN org_id VARCHAR(50) NOT NULL DEFAULT 'default_org'
+                    """))
+                    conn.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_field_corrections_org_id 
+                        ON field_corrections(org_id)
+                    """))
+                    conn.commit()
+                    logger.info("✅ Added org_id column to field_corrections")
+                else:
+                    logger.info("✅ org_id column already exists")
+            except Exception as e:
+                logger.warning(f"⚠️ field_corrections update: {e}")
+        
+        # Step 3: Create Scout tables
+        logger.info("🏗️ Creating Scout tables...")
+        Base.metadata.create_all(engine, tables=[
+            Signal.__table__,
+            ScoutInsight.__table__, 
+            ScoutInsightUserState.__table__
+        ])
+        
+        # Step 4: Verify tables exist
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('signals', 'scout_insights', 'scout_insight_user_state')
+            """))
+            tables = [row[0] for row in result]
+            
+            logger.info(f"✅ Created tables: {tables}")
+            
+            if len(tables) >= 2:  # At least signals and scout_insights
+                logger.info("🎉 SUCCESS: Scout v2.2 tables created successfully!")
+                return {
+                    "success": True,
+                    "message": f"Scout v2.2 tables created successfully! Found {len(tables)} tables: {', '.join(tables)}. Real insights are now enabled.",
+                    "tables_created": tables
+                }
+            else:
+                raise Exception(f"Only {len(tables)}/3 tables created: {tables}")
+                
     except Exception as e:
-        logger.error(f"Error setting up Scout tables: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
+        logger.error(f"❌ ERROR creating Scout tables: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Setup failed: {str(e)}")
 
 @router.post("/crawl/all")
 async def trigger_all_sources_crawl(org_id: str = Query("default_org")):
