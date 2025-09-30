@@ -1745,6 +1745,85 @@ class PermitDashboard {
         
         return (containsValidTerm || hasFormationPattern) && !hasInvalidPattern;
     }
+    
+    isInjectionWell(permit) {
+        if (!permit) return false;
+        
+        const filingPurpose = (permit.filing_purpose || '').toLowerCase();
+        const currentQueue = (permit.current_queue || '').toLowerCase();
+        const leaseName = (permit.lease_name || '').toLowerCase();
+        
+        // Check for injection well indicators
+        const injectionIndicators = [
+            'injection well',
+            'injection',
+            'disposal well',
+            'disposal',
+            'saltwater disposal',
+            'swd',
+            'water injection',
+            'enhanced recovery',
+            'secondary recovery',
+            'waterflooding',
+            'water flood',
+            'co2 injection',
+            'gas injection'
+        ];
+        
+        return injectionIndicators.some(indicator => 
+            filingPurpose.includes(indicator) || 
+            currentQueue.includes(indicator) ||
+            leaseName.includes(indicator)
+        );
+    }
+    
+    async removeInjectionWell(permit) {
+        if (!confirm(`Are you sure you want to permanently delete this injection well from the database?\n\nPermit: ${permit.status_no}\nOperator: ${permit.operator_name}\nLease: ${permit.lease_name}\n\nThis action cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/v1/permits/${permit.status_no}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.detail) {
+                        errorMessage = `${errorMessage} - ${errorData.detail}`;
+                    }
+                } catch (e) {
+                    // If we can't parse the error response, use the basic message
+                }
+                throw new Error(errorMessage);
+            }
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #dc2626; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+            successMsg.textContent = `🗑️ Injection well deleted: ${permit.status_no}`;
+            document.body.appendChild(successMsg);
+            
+            // Auto-remove success message after 4 seconds
+            setTimeout(() => {
+                if (successMsg.parentNode) {
+                    successMsg.remove();
+                }
+            }, 4000);
+            
+            // Refresh permits to remove the deleted one
+            this.loadPermits();
+            
+        } catch (error) {
+            console.error('Error removing injection well:', error);
+            alert(`Failed to remove injection well: ${error.message}`);
+        }
+    }
 
     // Check if field name is incorrectly parsed from comments/remarks
     isIncorrectlyParsedFieldName(fieldName) {
@@ -4491,19 +4570,53 @@ class OptimizedDashboard extends PermitDashboard {
         return modal;
     }
 
-    // Enhanced permit rendering with "New Reservoir Detected" option
+    // Enhanced permit rendering with "New Reservoir Detected" and "Injection Well" options
     renderPermitCard(permit) {
         // Get the original card HTML from the parent class method
         const originalCard = this.generatePermitCardHTML(permit);
         
-        // Check if this is a new/unknown reservoir that needs attention
-        const isNewReservoir = permit.field_name && 
+        // Check if this is an injection well
+        const isInjectionWell = this.isInjectionWell(permit);
+        
+        // Check if this is a new/unknown reservoir that needs attention (but not an injection well)
+        const isNewReservoir = !isInjectionWell && permit.field_name && 
                               !this.reservoirMapping[permit.field_name] && 
                               permit.field_name !== 'Unknown' &&
                               !permit.field_name.includes('(exactly as shown in RRC records)') &&
                               !this.isIncorrectlyParsedFieldName(permit.field_name);
 
-        if (isNewReservoir) {
+        if (isInjectionWell) {
+            // Add "Injection Well Detected" banner
+            const cardElement = document.createElement('div');
+            cardElement.innerHTML = originalCard;
+            
+            const banner = document.createElement('div');
+            banner.className = 'injection-well-banner';
+            
+            banner.innerHTML = `
+                <div style="background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; padding: 0.5rem; border-radius: 0.375rem; margin-bottom: 0.75rem; text-align: center;">
+                    <div style="font-weight: 600; font-size: 0.875rem;">🚫 Injection Well Detected</div>
+                    <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Purpose: ${permit.filing_purpose || 'Unknown'}</div>
+                    <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+                        <button onclick="if(window.dashboard && window.dashboard.removeInjectionWell) window.dashboard.removeInjectionWell(${JSON.stringify(permit).replace(/"/g, '&quot;')})" 
+                                style="background: #dc2626; border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
+                            🗑️ Remove from Database
+                        </button>
+                        <button onclick="if(window.dashboard && window.dashboard.dismissPermit) window.dashboard.dismissPermit('${permit.status_no}')" 
+                                style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;">
+                            ✕ Keep but Dismiss
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            const permitCard = cardElement.querySelector('.permit-card');
+            if (permitCard) {
+                permitCard.insertBefore(banner, permitCard.firstChild);
+            }
+            
+            return cardElement.innerHTML;
+        } else if (isNewReservoir) {
             // Add "New Reservoir Detected" banner
             const cardElement = document.createElement('div');
             cardElement.innerHTML = originalCard;

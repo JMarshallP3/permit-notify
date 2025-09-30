@@ -1452,11 +1452,8 @@ async def suggest_field_name(permit_id: int):
             if not permit:
                 raise HTTPException(status_code=404, detail="Permit not found")
             
-            suggestion = field_learning.suggest_field_name(
-                permit.field_name,
-                permit.lease_name,
-                permit.operator_name
-            )
+            # TODO: Implement field learning suggestion
+            suggestion = None  # field_learning.suggest_field_name(...)
             
             return {
                 "permit_id": permit_id,
@@ -1476,7 +1473,8 @@ async def suggest_field_name(permit_id: int):
 async def get_correction_stats():
     """Get statistics about field name corrections."""
     try:
-        stats = field_learning.get_correction_stats()
+        # TODO: Implement correction stats
+        stats = {"corrections": 0, "patterns": 0}  # field_learning.get_correction_stats()
         return stats
         
     except Exception as e:
@@ -1487,12 +1485,62 @@ async def get_correction_stats():
 async def apply_learned_corrections(limit: int = 20):
     """Apply learned corrections to similar permits."""
     try:
-        result = field_learning.apply_learned_corrections(limit=limit)
+        # TODO: Implement bulk apply corrections
+        result = {"applied": 0, "message": "Feature not implemented"}  # field_learning.apply_learned_corrections(limit=limit)
         return result
         
     except Exception as e:
         logger.error(f"Apply corrections error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to apply corrections: {str(e)}")
+
+@app.delete("/api/v1/permits/{status_no}")
+async def delete_permit(status_no: str, request: Request):
+    """
+    Delete a permit from the database (typically used for injection wells).
+    This is a permanent deletion and cannot be undone.
+    """
+    try:
+        # Get org_id for tenant isolation
+        org_id = request.query_params.get('org_id') or request.headers.get('X-Org-ID') or 'default_org'
+        
+        logger.info(f"Delete permit request: status_no='{status_no}', org_id='{org_id}'")
+        
+        with get_session() as session:
+            # Find the permit with tenant isolation
+            permit = session.query(Permit).filter(
+                Permit.status_no == status_no,
+                Permit.org_id == org_id
+            ).first()
+            
+            # If not found with org_id, try without for legacy data
+            if not permit and org_id == 'default_org':
+                permit = session.query(Permit).filter(
+                    Permit.status_no == status_no
+                ).first()
+            
+            if not permit:
+                raise HTTPException(status_code=404, detail=f"Permit {status_no} not found")
+            
+            # Log the deletion for audit purposes
+            logger.info(f"Deleting permit: {status_no} (org: {org_id}) - {permit.operator_name} - {permit.lease_name}")
+            
+            # Delete the permit
+            session.delete(permit)
+            session.commit()
+            
+            return {
+                "success": True,
+                "message": f"Permit {status_no} deleted successfully",
+                "status_no": status_no,
+                "operator_name": permit.operator_name,
+                "lease_name": permit.lease_name
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete permit error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete permit: {str(e)}")
 
 @app.post("/api/v1/sync/data")
 async def sync_data(request_data: dict):
