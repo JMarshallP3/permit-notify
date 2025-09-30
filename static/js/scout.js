@@ -146,6 +146,8 @@ class ScoutWidget {
                 // Double-check the container after rendering
                 const container = document.getElementById('scoutInsightsContainer');
                 console.log('📊 Container after render:', container ? container.innerHTML.length + ' chars' : 'not found');
+                console.log('📊 Container HTML preview:', container ? container.innerHTML.substring(0, 200) + '...' : 'not found');
+                console.log('📊 Container element:', container);
             } else {
                 throw new Error(data.detail || 'Demo insights failed');
             }
