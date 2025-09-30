@@ -4944,7 +4944,7 @@ class OptimizedDashboard extends PermitDashboard {
                 
                 <!-- Chart Container -->
                 <div style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
-                    <div style="flex: 1; position: relative; min-height: 300px;">
+                    <div style="position: relative; height: 250px; margin-bottom: 0.5rem;">
                         <canvas id="mobileReservoirChart" style="width: 100%; height: 100%;"></canvas>
                     </div>
                     
@@ -4955,7 +4955,7 @@ class OptimizedDashboard extends PermitDashboard {
                 </div>
                 
                 <!-- Legend/Stats -->
-                <div id="mobileTrendStats" style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: #f8fafc; max-height: 120px; overflow-y: auto;">
+                <div id="mobileTrendStats" style="padding: 0.75rem; border-top: 1px solid #e5e7eb; background: #f8fafc; height: 140px; overflow-y: auto;">
                     <div style="color: #6b7280; text-align: center; font-size: 0.75rem;">Chart will load here...</div>
                 </div>
             </div>
@@ -5086,6 +5086,78 @@ class OptimizedDashboard extends PermitDashboard {
                 loadingEl.innerHTML = 'Error loading chart data';
                 loadingEl.style.color = '#ef4444';
             }
+        }
+    }
+
+    pursuePermit(statusNo) {
+        console.log('🎯 Pursuing permit:', statusNo);
+        
+        // Show a simple confirmation/action modal
+        const modal = document.createElement('div');
+        modal.className = 'mobile-modal-overlay';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem;';
+        
+        // Find the permit details
+        const permit = this.permits.find(p => p.status_no === statusNo);
+        const permitName = permit ? permit.lease_name || `Permit ${statusNo}` : `Permit ${statusNo}`;
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 1rem; width: 100%; max-width: 400px; position: relative;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #1f2937;">🎯 Pursue Permit</h2>
+                        <button onclick="this.closest('.mobile-modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
+                    </div>
+                </div>
+                <div style="padding: 1.5rem;">
+                    <p style="margin: 0 0 1rem 0; color: #374151; font-size: 0.875rem;">
+                        Mark <strong>${permitName}</strong> as high priority for follow-up?
+                    </p>
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <button onclick="window.dashboard.confirmPursue('${statusNo}'); this.closest('.mobile-modal-overlay').remove();" 
+                                style="width: 100%; padding: 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;">
+                            ✅ Yes, Pursue This Permit
+                        </button>
+                        <button onclick="this.closest('.mobile-modal-overlay').remove()" 
+                                style="width: 100%; padding: 0.75rem; background: #6b7280; color: white; border: none; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+
+    confirmPursue(statusNo) {
+        console.log('✅ Confirmed pursuit of permit:', statusNo);
+        
+        // For now, just show a success message
+        // In the future, this could mark the permit in the database or add to a special queue
+        const message = document.createElement('div');
+        message.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1002; font-weight: 500;';
+        message.textContent = `🎯 Permit ${statusNo} marked for pursuit`;
+        document.body.appendChild(message);
+        
+        setTimeout(() => {
+            if (message.parentNode) {
+                message.remove();
+            }
+        }, 3000);
+        
+        // Could add to localStorage for tracking pursued permits
+        const pursuedPermits = JSON.parse(localStorage.getItem('pursuedPermits') || '[]');
+        if (!pursuedPermits.includes(statusNo)) {
+            pursuedPermits.push(statusNo);
+            localStorage.setItem('pursuedPermits', JSON.stringify(pursuedPermits));
         }
     }
 
@@ -5291,29 +5363,40 @@ class OptimizedDashboard extends PermitDashboard {
                 </div>
                 
                 <div class="permit-card-actions">
+                    <!-- Row 1: View Permit (centered) -->
                     ${permit.detail_url ? `
-                        <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline" style="text-decoration: none; display: inline-block;">
-                            📄 View Permit
-                        </a>
+                        <div class="permit-action-row">
+                            <a href="${permit.detail_url}" target="_blank" class="btn btn-sm btn-outline permit-action-single" style="text-decoration: none; display: inline-block;">
+                                📄 View Permit
+                            </a>
+                        </div>
                     ` : ''}
                     
-                    <button class="btn btn-sm btn-warning" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
-                        ⚙️ Manage Reservoir
-                    </button>
-                    
-                    <button class="btn btn-sm btn-success" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
-                        🔄 Re-enrich
-                    </button>
-                    
-                    ${!isDismissed ? `
-                        <button class="btn btn-sm btn-outline" onclick="window.dashboard.dismissPermit('${permit.status_no}')">
-                            ✕ Dismiss
+                    <!-- Row 2: Manage Reservoir + Re-enrich (side by side) -->
+                    <div class="permit-action-row">
+                        <button class="btn btn-sm btn-warning permit-action-half" onclick="window.dashboard.openManualMappingForPermit(${JSON.stringify(permit).replace(/"/g, '&quot;')})">
+                            ⚙️ Manage
                         </button>
-                    ` : `
-                        <button class="btn btn-sm btn-outline" onclick="window.dashboard.undismissPermit('${permit.status_no}')">
-                            ↩ Restore
+                        <button class="btn btn-sm btn-success permit-action-half" onclick="window.dashboard.flagForReenrich('${permit.status_no}')">
+                            🔄 Re-enrich
                         </button>
-                    `}
+                    </div>
+                    
+                    <!-- Row 3: Dismiss + Pursue (side by side) -->
+                    <div class="permit-action-row">
+                        ${!isDismissed ? `
+                            <button class="btn btn-sm btn-outline permit-action-half" onclick="window.dashboard.dismissPermit('${permit.status_no}')">
+                                ✕ Dismiss
+                            </button>
+                            <button class="btn btn-sm btn-primary permit-action-half" onclick="window.dashboard.pursuePermit('${permit.status_no}')">
+                                🎯 Pursue
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm btn-outline permit-action-single" onclick="window.dashboard.undismissPermit('${permit.status_no}')">
+                                ↩ Restore
+                            </button>
+                        `}
+                    </div>
                 </div>
             </div>
         `;
