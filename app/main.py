@@ -911,6 +911,13 @@ async def count_permits_by_field_name(
     Used for bulk update confirmation dialogs.
     """
     try:
+        # Log the incoming parameters for debugging
+        logger.info(f"Count permits by field - field_name: '{field_name}', exclude_status_no: '{exclude_status_no}'")
+        
+        # Validate field_name is not empty
+        if not field_name or not field_name.strip():
+            raise HTTPException(status_code=422, detail="Field name cannot be empty")
+        
         with get_session() as session:
             query = session.query(Permit).filter(Permit.field_name == field_name)
             
@@ -919,12 +926,16 @@ async def count_permits_by_field_name(
             
             count = query.count()
             
+            logger.info(f"Count result: {count} permits found for field '{field_name}'")
+            
             return {
                 "count": count,
                 "field_name": field_name,
                 "excluded_status_no": exclude_status_no
             }
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Count permits by field error: {e}")
         raise HTTPException(status_code=500, detail="Failed to count permits")
