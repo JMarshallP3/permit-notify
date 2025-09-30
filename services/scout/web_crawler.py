@@ -111,7 +111,9 @@ class MRFCrawler:
         discussions_urls = [
             f"{self.base_url}/discussions",
             f"{self.base_url}/categories/oil-gas-mineral-rights-questions",
-            f"{self.base_url}/categories/lease-bonus-royalty-discussions"
+            f"{self.base_url}/categories/lease-bonus-royalty-discussions",
+            f"{self.base_url}/categories/general-oil-gas-discussion",
+            f"{self.base_url}/"  # Try the main page as fallback
         ]
         
         for base_url in discussions_urls:
@@ -121,6 +123,7 @@ class MRFCrawler:
                 page_url = f"{base_url}?page={page}" if page > 1 else base_url
                 
                 try:
+                    logger.info(f"Crawling MRF page: {page_url}")
                     async with self.session.get(page_url) as response:
                         if response.status != 200:
                             logger.warning(f"Failed to fetch MRF page {page_url}: HTTP {response.status}")
@@ -132,12 +135,19 @@ class MRFCrawler:
                         # Extract discussion links (adjust selectors based on actual MRF HTML)
                         discussion_links = []
                         
-                        # Common selectors for discussion links
+                        # Common selectors for discussion links - be more flexible
                         link_selectors = [
                             'a[href*="/discussion/"]',
                             'a[href*="/d/"]',
+                            'a[href*="/topic/"]',
+                            'a[href*="/thread/"]',
                             '.discussion-title a',
-                            '.item-title a'
+                            '.item-title a',
+                            '.topic-title a',
+                            'a[title*="oil"]',
+                            'a[title*="gas"]',
+                            'a[title*="lease"]',
+                            'a[title*="mineral"]'
                         ]
                         
                         for selector in link_selectors:
