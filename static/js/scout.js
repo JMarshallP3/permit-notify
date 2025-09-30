@@ -31,6 +31,14 @@ class ScoutWidget {
 
             const data = await response.json();
             this.insights = data.insights || [];
+            
+            // If we get empty insights and no specific message, try demo mode
+            if (this.insights.length === 0 && !data.message) {
+                console.log('🔄 No insights found, trying demo mode...');
+                await this.loadDemoInsights();
+                return;
+            }
+            
             this.renderInsights();
             
             // Show compatibility mode message if applicable
@@ -112,6 +120,32 @@ class ScoutWidget {
         } catch (error) {
             console.error('Error during all-sources test crawl:', error);
             this.showError(`All-sources crawl failed: ${error.message}`);
+        }
+    }
+    
+    async loadDemoInsights() {
+        try {
+            this.showInfo('Loading Scout v2.2 demo insights with enhanced analytics...');
+            
+            const response = await fetch('/api/v1/scout/insights/demo?org_id=default_org');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.insights = data.insights || [];
+                this.renderInsights();
+                this.showSuccess('🚀 Scout v2.2 Demo Mode Active! Featuring multi-source intelligence, breakout detection, and deep analytics.');
+                console.log('📊 Loaded demo insights:', this.insights);
+            } else {
+                throw new Error(data.detail || 'Demo insights failed');
+            }
+        } catch (error) {
+            console.error('Error loading demo insights:', error);
+            this.showError(`Demo insights failed: ${error.message}`);
         }
     }
 
@@ -486,6 +520,11 @@ class ScoutWidget {
                     <button onclick="scoutWidget.testCrawlAll()" 
                             style="background-color: #007bff; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
                         🌐 All Sources
+                    </button>
+                    
+                    <button onclick="scoutWidget.loadDemoInsights()" 
+                            style="background-color: #6f42c1; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                        🚀 Demo v2.2
                     </button>
                 </div>
             </div>
