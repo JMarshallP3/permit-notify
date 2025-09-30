@@ -12,6 +12,7 @@ import logging
 import requests
 import time
 from datetime import datetime, timezone
+from app.scout_api import router as scout_router
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes import api_router
 from services.scraper.scraper import Scraper
@@ -98,6 +99,7 @@ enrichment_worker = EnrichmentWorker()
 
 # Include the API routes
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(scout_router)
 
 # Dashboard routes
 @app.get("/", response_class=HTMLResponse)

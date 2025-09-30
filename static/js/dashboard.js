@@ -5219,31 +5219,29 @@ class OptimizedDashboard extends PermitDashboard {
     openScout() {
         console.log('🔍 Opening Scout...');
         
-        // Placeholder function - you can build this out later
+        // Create full Scout widget modal
         const modal = document.createElement('div');
-        modal.className = 'mobile-modal-overlay';
+        modal.className = 'mobile-modal-overlay scout-modal';
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem;';
         
         modal.innerHTML = `
-            <div style="background: white; border-radius: 1rem; width: 100%; max-width: 500px; position: relative;">
-                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+            <div style="background: white; border-radius: 1rem; width: 100%; max-width: 900px; height: 90vh; position: relative; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">🔍 Scout</h2>
                         <button onclick="this.closest('.mobile-modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem;">✕</button>
                     </div>
                 </div>
-                <div style="padding: 1.5rem; text-align: center;">
-                    <div style="font-size: 3rem; margin-bottom: 1rem;">🚧</div>
-                    <h3 style="margin: 0 0 1rem 0; color: #374151;">Coming Soon</h3>
-                    <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">
-                        The Scout feature is under development.<br>
-                        This will be your advanced permit scouting dashboard.
-                    </p>
+                <div style="flex: 1; overflow: hidden;">
+                    ${window.scoutWidget.getFullUI()}
                 </div>
             </div>
         `;
         
         document.body.appendChild(modal);
+        
+        // Initialize Scout widget
+        window.scoutWidget.loadInsights();
         
         // Close on outside click
         modal.addEventListener('click', (e) => {

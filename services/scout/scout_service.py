@@ -1,0 +1,279 @@
+"""
+Scout v2.1 Main Service
+Orchestrates web crawling, signal processing, analytics, and insight generation
+"""
+
+import asyncio
+import logging
+from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Any
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, func
+
+from db.database import get_session
+from db.scout_models import Signal, ScoutInsight, ScoutInsightUserState, InsightUserState
+from services.scout.web_crawler import WebCrawler
+from services.scout.analytics import SignalMatcher
+
+logger = logging.getLogger(__name__)
+
+class ScoutService:
+    """Main Scout service for processing signals and generating insights"""
+    
+    def __init__(self):
+        self.signal_matcher = SignalMatcher()
+    
+    async def process_new_signals(self, org_id: str = "default_org") -> int:
+        """Process new signals and generate insights"""
+        
+        insights_created = 0
+        
+        with get_session() as session:
+            # Get unprocessed signals (last 24 hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+            
+            new_signals = session.query(Signal).filter(
+                and_(
+                    Signal.org_id == org_id,
+                    Signal.found_at >= cutoff_time
+                )
+            ).all()
+            
+            if not new_signals:
+                logger.info("No new signals to process")
+                return 0
+            
+            logger.info(f"Processing {len(new_signals)} new signals")
+            
+            # Match signals to permits and generate insights
+            insights_data = self.signal_matcher.match_signals_to_permits(new_signals, org_id)
+            
+            # Deduplicate insights (72-hour window)
+            deduped_insights = self.deduplicate_insights(session, insights_data, org_id)
+            
+            # Save insights to database
+            for insight_data in deduped_insights:
+                insight = ScoutInsight(
+                    org_id=org_id,
+                    **insight_data
+                )
+                session.add(insight)
+                insights_created += 1
+            
+            session.commit()
+            
+            # TODO: Emit WebSocket events for new insights
+            # for insight in new_insights:
+            #     emit_scout_insight(org_id, insight)
+            
+            logger.info(f"Created {insights_created} new insights")
+        
+        return insights_created
+    
+    def deduplicate_insights(self, session: Session, insights_data: List[Dict], org_id: str) -> List[Dict]:
+        """Remove duplicate insights based on 72-hour dedup window"""
+        
+        if not insights_data:
+            return []
+        
+        # Get existing dedup keys from last 72 hours
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=72)
+        
+        existing_keys = set()
+        existing_insights = session.query(ScoutInsight.dedup_key).filter(
+            and_(
+                ScoutInsight.org_id == org_id,
+                ScoutInsight.created_at >= cutoff_time,
+                ScoutInsight.dedup_key.isnot(None)
+            )
+        ).all()
+        
+        for (key,) in existing_insights:
+            existing_keys.add(key)
+        
+        # Filter out duplicates
+        deduped = []
+        for insight_data in insights_data:
+            dedup_key = insight_data.get('dedup_key')
+            if dedup_key and dedup_key not in existing_keys:
+                deduped.append(insight_data)
+                existing_keys.add(dedup_key)  # Prevent duplicates within this batch
+        
+        logger.info(f"Deduplication: {len(insights_data)} -> {len(deduped)} insights")
+        return deduped
+    
+    async def run_web_crawl(self, org_id: str = "default_org") -> int:
+        """Run web crawling to collect new signals"""
+        
+        signals_collected = 0
+        
+        async with WebCrawler() as crawler:
+            # Example crawl - in production, this would crawl actual sources
+            # For now, we'll create some example signals for testing
+            
+            example_signals = await self.create_example_signals(org_id)
+            
+            if example_signals:
+                await crawler.save_signals_to_db(example_signals, org_id)
+                signals_collected = len(example_signals)
+        
+        logger.info(f"Collected {signals_collected} new signals")
+        return signals_collected
+    
+    async def create_example_signals(self, org_id: str) -> List[Dict[str, Any]]:
+        """Create example signals for testing (remove in production)"""
+        
+        # This is just for testing - replace with actual web crawling
+        example_signals = [
+            {
+                'source_url': 'https://example.com/test-signal-1',
+                'source_type': 'test',
+                'state': 'TX',
+                'county': 'Reeves',
+                'operators': ['EOG RESOURCES'],
+                'unit_tokens': ['UNIVERSITY BLOCK 9'],
+                'keywords': ['drilling', 'permit', 'horizontal'],
+                'claim_type': 'likely',
+                'summary': 'EOG Resources increases drilling activity in Reeves County with new horizontal permits',
+                'raw_excerpt': 'EOG Resources has filed multiple new drilling permits in Reeves County targeting the Wolfcamp formation...',
+                'found_at': datetime.now(timezone.utc)
+            }
+        ]
+        
+        return example_signals
+    
+    async def auto_archive_dismissed_insights(self, org_id: str = "default_org") -> int:
+        """Auto-archive insights that have been dismissed for 30+ days"""
+        
+        archived_count = 0
+        
+        with get_session() as session:
+            # Find dismissed insights older than 30 days
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+            
+            dismissed_states = session.query(ScoutInsightUserState).filter(
+                and_(
+                    ScoutInsightUserState.org_id == org_id,
+                    ScoutInsightUserState.state == InsightUserState.DISMISSED,
+                    ScoutInsightUserState.dismissed_at <= cutoff_date
+                )
+            ).all()
+            
+            for user_state in dismissed_states:
+                user_state.state = InsightUserState.ARCHIVED
+                user_state.archived_at = datetime.now(timezone.utc)
+                archived_count += 1
+            
+            session.commit()
+            
+            # TODO: Emit WebSocket events for archived insights
+            # for user_state in dismissed_states:
+            #     emit_scout_insight_user_state_updated(org_id, user_state)
+            
+            logger.info(f"Auto-archived {archived_count} dismissed insights")
+        
+        return archived_count
+    
+    async def run_full_cycle(self, org_id: str = "default_org") -> Dict[str, int]:
+        """Run a complete Scout processing cycle"""
+        
+        logger.info("Starting Scout processing cycle")
+        
+        # Step 1: Collect new signals
+        signals_collected = await self.run_web_crawl(org_id)
+        
+        # Step 2: Process signals into insights
+        insights_created = await self.process_new_signals(org_id)
+        
+        # Step 3: Auto-archive old dismissed insights
+        archived_count = await self.auto_archive_dismissed_insights(org_id)
+        
+        results = {
+            'signals_collected': signals_collected,
+            'insights_created': insights_created,
+            'insights_archived': archived_count
+        }
+        
+        logger.info(f"Scout cycle complete: {results}")
+        return results
+    
+    def get_scout_stats(self, org_id: str = "default_org") -> Dict[str, Any]:
+        """Get Scout statistics for monitoring"""
+        
+        with get_session() as session:
+            # Count signals by source type (last 7 days)
+            week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            
+            signal_counts = session.query(
+                Signal.source_type,
+                func.count(Signal.id).label('count')
+            ).filter(
+                and_(
+                    Signal.org_id == org_id,
+                    Signal.found_at >= week_ago
+                )
+            ).group_by(Signal.source_type).all()
+            
+            # Count insights by confidence level (last 30 days)
+            month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            
+            insight_counts = session.query(
+                ScoutInsight.confidence,
+                func.count(ScoutInsight.id).label('count')
+            ).filter(
+                and_(
+                    ScoutInsight.org_id == org_id,
+                    ScoutInsight.created_at >= month_ago
+                )
+            ).group_by(ScoutInsight.confidence).all()
+            
+            # Count user states
+            user_state_counts = session.query(
+                ScoutInsightUserState.state,
+                func.count(ScoutInsightUserState.id).label('count')
+            ).filter(
+                ScoutInsightUserState.org_id == org_id
+            ).group_by(ScoutInsightUserState.state).all()
+            
+            return {
+                'signals_7d': {source: count for source, count in signal_counts},
+                'insights_30d': {conf.value: count for conf, count in insight_counts},
+                'user_states': {state.value: count for state, count in user_state_counts},
+                'last_updated': datetime.now(timezone.utc)
+            }
+
+# Background task runner
+async def run_scout_background_task():
+    """Background task to run Scout processing periodically"""
+    
+    scout_service = ScoutService()
+    
+    while True:
+        try:
+            await scout_service.run_full_cycle()
+            
+            # Wait 1 hour before next cycle
+            await asyncio.sleep(3600)
+            
+        except Exception as e:
+            logger.error(f"Scout background task error: {e}")
+            # Wait 5 minutes before retrying on error
+            await asyncio.sleep(300)
+
+# CLI function for manual runs
+async def run_scout_manual():
+    """Manual Scout run for testing/debugging"""
+    
+    scout_service = ScoutService()
+    results = await scout_service.run_full_cycle()
+    
+    print(f"Scout processing complete:")
+    print(f"  Signals collected: {results['signals_collected']}")
+    print(f"  Insights created: {results['insights_created']}")
+    print(f"  Insights archived: {results['insights_archived']}")
+    
+    return results
+
+if __name__ == "__main__":
+    # Run manual Scout processing
+    asyncio.run(run_scout_manual())
