@@ -1480,13 +1480,22 @@ class PermitDashboard {
     }
     
     openManualMappingForPermit(permit) {
+        // Debug logging to see what permit data we have
+        console.log('openManualMappingForPermit called with permit:', permit);
+        
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1001;';
         
-        // Pre-populate with permit data
-        const currentFieldName = permit.currentFieldName || permit.field_name || '';
+        // Pre-populate with permit data - try multiple field name sources
+        const currentFieldName = permit.currentFieldName || permit.field_name || permit.fieldName || 'UNKNOWN_FIELD';
         const permitUrl = permit.detail_url || '';
         const statusNo = permit.status_no || '';
+        
+        console.log('Extracted values:', {
+            currentFieldName: currentFieldName,
+            permitUrl: permitUrl,
+            statusNo: statusNo
+        });
         
         modal.innerHTML = `
             <div style="background: white; border-radius: 1rem; width: 90vw; max-width: 700px; padding: 2rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);">
@@ -1583,11 +1592,29 @@ class PermitDashboard {
     }
     
     async savePermitManualMapping(statusNo, oldFieldName, permitUrl) {
+        // Debug logging to identify the issue
+        console.log('savePermitManualMapping called with:', {
+            statusNo: statusNo,
+            oldFieldName: oldFieldName,
+            permitUrl: permitUrl
+        });
+        
         const correctFieldName = document.getElementById('correctFieldName').value.trim();
         const correctReservoir = document.getElementById('correctReservoirName').value.trim();
         
+        console.log('Form values:', {
+            correctFieldName: correctFieldName,
+            correctReservoir: correctReservoir
+        });
+        
         if (!correctFieldName || !correctReservoir) {
             alert('Please fill in both the correct field name and reservoir name.');
+            return;
+        }
+        
+        if (!oldFieldName) {
+            console.error('oldFieldName is missing or empty!');
+            alert('Error: Missing original field name. Please try refreshing the page and try again.');
             return;
         }
         
