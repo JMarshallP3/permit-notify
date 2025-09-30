@@ -66,6 +66,9 @@
                 <button class="mobile-btn mobile-btn-primary" onclick="window.dashboard.refreshData()">
                     🔄 Refresh
                 </button>
+                <button class="mobile-btn mobile-btn-accent" onclick="window.dashboard.openScout()">
+                    🔍 Scout
+                </button>
                 <button class="mobile-btn mobile-btn-accent" onclick="window.dashboard.showReservoirManagement()">
                     ⚙️ Reservoirs
                 </button>
@@ -77,9 +80,6 @@
                 </button>
                 <button class="mobile-btn mobile-btn-accent" onclick="window.dashboard.showTrends()">
                     📊 View Trends
-                </button>
-                <button class="mobile-btn mobile-btn-accent" onclick="window.dashboard.openScout()">
-                    🔍 Scout
                 </button>
                 <button class="mobile-btn mobile-btn-secondary" onclick="window.dashboard.exportPermits()">
                     📤 Export
@@ -259,6 +259,25 @@
                         </div>
                     </div>
 
+                    <!-- Scout -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">🔍 Scout</div>
+                            <div class="card-subtitle">Advanced permit scouting</div>
+                        </div>
+                        <div class="card-content">
+                            <div style="text-align: center;">
+                                <button onclick="if(window.dashboard && window.dashboard.openScout) window.dashboard.openScout()" 
+                                        style="padding: 0.75rem 1.5rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; font-weight: 600;">
+                                    🎯 Launch Scout
+                                </button>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                                    Click to open scouting dashboard
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Quick Stats -->
                     <div class="card">
                         <div class="card-header">
@@ -337,25 +356,6 @@
                                 </button>
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem;">
                                     Click to open reservoir management dashboard
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Scout -->
-                    <div class="card">
-                        <div class="card-header">
-                            <div class="card-title">🔍 Scout</div>
-                            <div class="card-subtitle">Advanced permit scouting</div>
-                        </div>
-                        <div class="card-content">
-                            <div style="text-align: center;">
-                                <button onclick="if(window.dashboard && window.dashboard.openScout) window.dashboard.openScout()" 
-                                        style="padding: 0.75rem 1.5rem; background: var(--gradient-accent); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; font-weight: 600;">
-                                    🎯 Launch Scout
-                                </button>
-                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.5rem;">
-                                    Click to open scouting dashboard
                                 </div>
                             </div>
                         </div>
