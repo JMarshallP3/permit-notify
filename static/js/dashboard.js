@@ -298,6 +298,9 @@ class PermitDashboard {
     }
     
     applyFilters() {
+        console.log('applyFilters called - showDismissed:', this.showDismissed);
+        console.log('dismissedPermits:', [...this.dismissedPermits]);
+        
         this.filteredPermits = this.permits.filter(permit => {
             const operator = (permit.operator_name || '').toLowerCase();
             const county = (permit.county || '').toLowerCase();
@@ -315,12 +318,20 @@ class PermitDashboard {
             const countyMatch = this.selectedCounties.size === 0 || 
                 this.selectedCounties.has(permit.county);
             
+            // Check if this permit should be filtered out due to dismiss
+            const isDismissed = this.dismissedPermits.has(permit.status_no);
+            const shouldShowDismissed = this.showDismissed || !isDismissed;
+            
+            if (isDismissed && !this.showDismissed) {
+                console.log(`Filtering out dismissed permit: ${permit.status_no}`);
+            }
+            
             return (
                 (!this.filters.operator || operator.includes(this.filters.operator)) &&
                 (!this.filters.county || county.includes(this.filters.county)) &&
                 (!this.filters.purpose || purpose.includes(this.filters.purpose)) &&
                 (!this.filters.queue || queue.includes(this.filters.queue)) &&
-                (this.showDismissed || !this.dismissedPermits.has(permit.status_no)) &&
+                shouldShowDismissed &&
                 isToday &&
                 operatorMatch &&
                 countyMatch
@@ -532,7 +543,13 @@ class PermitDashboard {
     }
     
     dismissPermit(permitId) {
+        console.log('Dismissing permit:', permitId);
+        console.log('showDismissed before:', this.showDismissed);
+        console.log('dismissedPermits before:', [...this.dismissedPermits]);
+        
         this.dismissedPermits.add(permitId);
+        
+        console.log('dismissedPermits after:', [...this.dismissedPermits]);
         
         // Add visual feedback
         const card = document.querySelector(`[data-permit-id="${permitId}"]`);
@@ -541,6 +558,7 @@ class PermitDashboard {
             
             // Remove after animation
             setTimeout(() => {
+                console.log('Applying filters after dismiss...');
                 this.applyFilters(); // Re-render without dismissed permit
             }, 300);
         }
