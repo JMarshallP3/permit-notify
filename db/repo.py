@@ -126,14 +126,13 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days_back)
         
-        # Base query for permits with field names in the date range (exclude injection wells)
+        # Base query for permits with field names in the date range
         base_query = session.query(Permit).filter(
             and_(
                 Permit.status_date >= start_date,
                 Permit.status_date <= end_date,
                 Permit.field_name.isnot(None),
-                Permit.field_name != '',
-                Permit.is_injection_well != True  # Exclude flagged injection wells from trend analysis
+                Permit.field_name != ''
             )
         )
         

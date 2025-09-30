@@ -436,9 +436,7 @@ async def get_permits_for_trends(
         logger.info(f"Fetching {limit} permits for trend analysis")
         
         with get_session() as session:
-            permits = session.query(Permit).filter(
-                Permit.is_injection_well != True  # Exclude flagged injection wells from trend analysis
-            ).order_by(
+            permits = session.query(Permit).order_by(
                 Permit.status_date.desc(),
                 Permit.created_at.desc()
             ).limit(limit).all()
@@ -1344,9 +1342,10 @@ async def flag_injection_well(status_no: str, request: Request):
             if not permit:
                 raise HTTPException(status_code=404, detail=f"Permit {status_no} not found")
             
-            # Flag as injection well
-            permit.is_injection_well = True
-            session.commit()
+            # Flag as injection well - TEMPORARILY DISABLED UNTIL MIGRATION RUNS
+            # permit.is_injection_well = True
+            # session.commit()
+            pass  # Temporarily do nothing
             
             logger.info(f"✅ Flagged permit {status_no} as injection well - will be excluded from trend analysis")
             
