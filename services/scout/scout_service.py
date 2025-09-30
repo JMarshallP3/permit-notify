@@ -109,17 +109,25 @@ class ScoutService:
         """Process signals into insights"""
         insights_created = 0
         
-        with get_session() as session:
-            for signal in signals:
-                try:
-                    insight = self.signal_matcher.generate_insight_from_signal(signal)
-                    if insight:
-                        session.add(insight)
-                        insights_created += 1
-                except Exception as e:
-                    logger.error(f"Error generating insight from signal {signal.id}: {e}")
-            
-            session.commit()
+        try:
+            with get_session() as session:
+                for signal in signals:
+                    try:
+                        insight = self.signal_matcher.generate_insight_from_signal(signal)
+                        if insight:
+                            session.add(insight)
+                            insights_created += 1
+                    except Exception as e:
+                        logger.error(f"Error generating insight from signal {getattr(signal, 'id', 'unknown')}: {e}")
+                
+                session.commit()
+        except Exception as e:
+            if "does not exist" in str(e) or "UndefinedTable" in str(e):
+                logger.warning("Scout tables don't exist yet - insights not saved to database")
+                return 0
+            else:
+                logger.error(f"Error saving insights to database: {e}")
+                raise
         
         return insights_created
 

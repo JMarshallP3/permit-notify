@@ -379,6 +379,31 @@ async def get_scout_stats(org_id: str = Query("default_org")):
         else:
             raise HTTPException(status_code=500, detail=f"Failed to get stats: {e}")
 
+@router.post("/setup")
+async def setup_scout_tables():
+    """Manually run Scout table migrations"""
+    
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+        
+        if os.getenv('DATABASE_URL'):
+            logger.info("Running Scout table migrations...")
+            alembic_cfg = Config("alembic.ini")
+            command.upgrade(alembic_cfg, "head")
+            
+            return {
+                "success": True,
+                "message": "Scout tables created successfully"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="No DATABASE_URL configured")
+            
+    except Exception as e:
+        logger.error(f"Error setting up Scout tables: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
+
 @router.post("/crawl/mrf")
 async def trigger_mrf_crawl(org_id: str = Query("default_org")):
     """Manually trigger MRF crawling for testing"""

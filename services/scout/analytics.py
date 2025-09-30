@@ -112,69 +112,83 @@ class SignalMatcher:
         """
         Generates a ScoutInsight from a Signal, enriching it with analytics.
         """
-        related_permit_ids = self.match_signal_to_permits(signal)
-        
-        analytics_data = {}
-        if signal.county and signal.operators:
-            operator_key = signal.operators[0]
+        try:
+            related_permit_ids = self.match_signal_to_permits(signal)
             
-            velocity_7d_data = self.permit_analytics.calculate_permit_velocity(signal.county, operator_key, 7)
-            velocity_30d_data = self.permit_analytics.calculate_permit_velocity(signal.county, operator_key, 30)
-            
-            analytics_data['permit_velocity_7d_permits_per_day'] = velocity_7d_data['permits_per_day']
-            analytics_data['permit_velocity_30d_permits_per_day'] = velocity_30d_data['permits_per_day']
-            
-            analytics_data['is_breakout'] = self.permit_analytics.detect_breakout(signal.county, operator_key)
-            analytics_data['is_new_operator_in_county'] = self.permit_analytics.is_new_operator_in_county(operator_key, signal.county)
+            analytics_data = {}
+            if signal.county and signal.operators:
+                operator_key = signal.operators[0]
+                
+                velocity_7d_data = self.permit_analytics.calculate_permit_velocity(signal.county, operator_key, 7)
+                velocity_30d_data = self.permit_analytics.calculate_permit_velocity(signal.county, operator_key, 30)
+                
+                analytics_data['permit_velocity_7d_permits_per_day'] = velocity_7d_data['permits_per_day']
+                analytics_data['permit_velocity_30d_permits_per_day'] = velocity_30d_data['permits_per_day']
+                
+                analytics_data['is_breakout'] = self.permit_analytics.detect_breakout(signal.county, operator_key)
+                analytics_data['is_new_operator_in_county'] = self.permit_analytics.is_new_operator_in_county(operator_key, signal.county)
 
-        # Deduplication key
-        dedup_key_parts = [
-            signal.summary or "",
-            ",".join(sorted(signal.operators)),
-            signal.county or "",
-            signal.source_url
-        ]
-        dedup_key = hashlib.sha256("".join(filter(None, dedup_key_parts)).encode('utf-8')).hexdigest()
+            # Deduplication key
+            dedup_key_parts = [
+                signal.summary or "",
+                ",".join(sorted(signal.operators)),
+                signal.county or "",
+                signal.source_url
+            ]
+            dedup_key = hashlib.sha256("".join(filter(None, dedup_key_parts)).encode('utf-8')).hexdigest()
 
-        # Check for existing insight with same dedup_key
-        with self.db_session_factory() as session:
-            existing_insight = session.query(ScoutInsight).filter(ScoutInsight.dedup_key == dedup_key).first()
-            if existing_insight:
-                logger.info(f"Skipping duplicate insight for signal {signal.id} with dedup_key {dedup_key}")
+            # Check for existing insight with same dedup_key
+            try:
+                with self.db_session_factory() as session:
+                    existing_insight = session.query(ScoutInsight).filter(ScoutInsight.dedup_key == dedup_key).first()
+                    if existing_insight:
+                        logger.info(f"Skipping duplicate insight for signal {signal.id} with dedup_key {dedup_key}")
+                        return None
+            except Exception as e:
+                if "does not exist" in str(e) or "UndefinedTable" in str(e):
+                    logger.warning("Scout tables don't exist yet - skipping duplicate check")
+                else:
+                    raise
+
+            # Generate insight content
+            what_happened = []
+            why_it_matters = []
+            
+            if signal.operators and signal.county:
+                what_happened.append(f"{signal.operators[0]} activity mentioned in {signal.county} County")
+                why_it_matters.append("Potential new drilling activity based on forum discussion")
+            
+            if analytics_data.get('is_breakout'):
+                why_it_matters.append("Recent permit activity shows statistical breakout pattern")
+            
+            if analytics_data.get('is_new_operator_in_county'):
+                why_it_matters.append("New operator entry into this county")
+
+            # Construct insight
+            insight = ScoutInsight(
+                org_id=signal.org_id,
+                title=f"Activity Signal: {signal.county or 'Unknown County'} - {signal.operators[0] if signal.operators else 'Unknown Operator'}",
+                what_happened=what_happened or ["Forum discussion about potential oil/gas activity"],
+                why_it_matters=why_it_matters or ["Indicates potential future drilling activity"],
+                confidence=ConfidenceLevel.MEDIUM,
+                confidence_reasons=["Derived from public forum discussion"],
+                next_checks=["Monitor RRC permits for this area", "Check for additional operator announcements"],
+                source_urls=[{"url": signal.source_url, "title": "MRF Discussion"}],
+                related_permit_ids=related_permit_ids,
+                county=signal.county,
+                state=signal.state,
+                operator_keys=signal.operators,
+                analytics=analytics_data,
+                dedup_key=dedup_key
+            )
+            return insight
+        except Exception as e:
+            if "does not exist" in str(e) or "UndefinedTable" in str(e):
+                logger.warning("Scout tables don't exist yet - cannot generate insight")
                 return None
-
-        # Generate insight content
-        what_happened = []
-        why_it_matters = []
-        
-        if signal.operators and signal.county:
-            what_happened.append(f"{signal.operators[0]} activity mentioned in {signal.county} County")
-            why_it_matters.append("Potential new drilling activity based on forum discussion")
-        
-        if analytics_data.get('is_breakout'):
-            why_it_matters.append("Recent permit activity shows statistical breakout pattern")
-        
-        if analytics_data.get('is_new_operator_in_county'):
-            why_it_matters.append("New operator entry into this county")
-
-        # Construct insight
-        insight = ScoutInsight(
-            org_id=signal.org_id,
-            title=f"Activity Signal: {signal.county or 'Unknown County'} - {signal.operators[0] if signal.operators else 'Unknown Operator'}",
-            what_happened=what_happened or ["Forum discussion about potential oil/gas activity"],
-            why_it_matters=why_it_matters or ["Indicates potential future drilling activity"],
-            confidence=ConfidenceLevel.MEDIUM,
-            confidence_reasons=["Derived from public forum discussion"],
-            next_checks=["Monitor RRC permits for this area", "Check for additional operator announcements"],
-            source_urls=[{"url": signal.source_url, "title": "MRF Discussion"}],
-            related_permit_ids=related_permit_ids,
-            county=signal.county,
-            state=signal.state,
-            operator_keys=signal.operators,
-            analytics=analytics_data,
-            dedup_key=dedup_key
-        )
-        return insight
+            else:
+                logger.error(f"Error generating insight from signal: {e}")
+                raise
 
 class SignalProcessor:
     """Processes crawled content into structured signals"""
@@ -292,22 +306,30 @@ class SignalProcessor:
         """Save signals to database, avoiding duplicates"""
         saved_count = 0
         
-        with get_session() as session:
-            for signal in signals:
-                # Check for duplicate based on URL and content hash
-                content_hash = hashlib.md5(signal.raw_excerpt.encode()).hexdigest()
+        try:
+            with get_session() as session:
+                for signal in signals:
+                    # Check for duplicate based on URL and content hash
+                    content_hash = hashlib.md5(signal.raw_excerpt.encode()).hexdigest()
+                    
+                    existing = session.query(Signal).filter(
+                        or_(
+                            Signal.source_url == signal.source_url,
+                            Signal.raw_excerpt.contains(content_hash[:20])  # Partial match
+                        )
+                    ).first()
+                    
+                    if not existing:
+                        session.add(signal)
+                        saved_count += 1
                 
-                existing = session.query(Signal).filter(
-                    or_(
-                        Signal.source_url == signal.source_url,
-                        Signal.raw_excerpt.contains(content_hash[:20])  # Partial match
-                    )
-                ).first()
-                
-                if not existing:
-                    session.add(signal)
-                    saved_count += 1
-            
-            session.commit()
+                session.commit()
+        except Exception as e:
+            if "does not exist" in str(e) or "UndefinedTable" in str(e):
+                logger.warning("Scout tables don't exist yet - signals not saved to database")
+                return 0
+            else:
+                logger.error(f"Error saving signals to database: {e}")
+                raise
         
         return saved_count
