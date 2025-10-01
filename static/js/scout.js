@@ -167,6 +167,12 @@ class ScoutWidget {
                 isMobile: window.innerWidth <= 480
             });
             
+            // Show loading state
+            const container = document.getElementById('scoutInsightsContainer');
+            if (container) {
+                container.innerHTML = '<div class="loading-state"><div>Running debug checks...</div></div>';
+            }
+            
             const response = await fetch('/api/v1/scout/debug');
             const result = await response.json();
             
@@ -184,10 +190,36 @@ class ScoutWidget {
             if (result.psycopg2_error) debugInfo.push(`psycopg2 error: ${result.psycopg2_error}`);
             if (result.sqlalchemy_error) debugInfo.push(`SQLAlchemy error: ${result.sqlalchemy_error}`);
             
+            // Display debug info in the insights container
+            if (container) {
+                container.innerHTML = `
+                    <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin: 1rem 0;">
+                        <h3 style="margin-top: 0; color: #495057;">🐛 Debug Information</h3>
+                        <pre style="background: white; padding: 1rem; border-radius: 4px; font-size: 14px; line-height: 1.4; overflow-x: auto;">${debugInfo.join('\n')}</pre>
+                        <button onclick="scoutWidget.loadInsights()" style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 1rem;">
+                            ← Back to Insights
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // Also show as info message for desktop
             this.showInfo(`🐛 Debug Info:\n${debugInfo.join('\n')}`);
             
         } catch (error) {
             console.error('❌ Debug error:', error);
+            const container = document.getElementById('scoutInsightsContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div style="padding: 1rem; background: #fff3cd; border-radius: 8px; margin: 1rem 0;">
+                        <h3 style="margin-top: 0; color: #856404;">❌ Debug Failed</h3>
+                        <p>Error: ${error.message}</p>
+                        <button onclick="scoutWidget.loadInsights()" style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                            ← Back to Insights
+                        </button>
+                    </div>
+                `;
+            }
             this.showError(`Debug failed: ${error}`);
         }
     }
