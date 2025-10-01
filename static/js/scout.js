@@ -601,7 +601,14 @@ class ScoutWidget {
         const isMobile = window.innerWidth <= 480;
         const isMinimized = this.filtersMinimized || false;
         
+        console.log('🔍 renderFilters called:', {
+            windowWidth: window.innerWidth,
+            isMobile: isMobile,
+            isMinimized: isMinimized
+        });
+        
         if (isMobile) {
+            console.log('📱 Rendering MOBILE layout');
             // Mobile layout with minimize functionality
             return `
                 <div class="scout-filters">
@@ -691,6 +698,7 @@ class ScoutWidget {
                 </div>
             `;
         } else {
+            console.log('🖥️ Rendering DESKTOP layout');
             // Desktop layout - no minimize functionality
             return `
                 <div class="scout-filters">
