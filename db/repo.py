@@ -160,16 +160,32 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
             date_labels.append(current_date.strftime('%Y-%m-%d'))
             current_date += timedelta(days=1)
         
+        # Get field corrections from database to apply to trends
+        field_corrections = {}
+        try:
+            from db.field_corrections import FieldCorrection
+            corrections = session.query(FieldCorrection).all()
+            for correction in corrections:
+                field_corrections[correction.wrong_field_name] = correction.correct_field_name
+        except Exception as e:
+            logger.warning(f"Could not load field corrections: {e}")
+        
+        # Merge database corrections with frontend mappings
+        all_mappings = {}
+        all_mappings.update(field_corrections)  # Database corrections first
+        if reservoir_mappings:
+            all_mappings.update(reservoir_mappings)  # Frontend mappings override
+        
         # Process each permit
         for permit in permits:
             if not permit.field_name:
                 continue
                 
-            # Use provided mappings first, then fall back to extraction logic
-            if reservoir_mappings and permit.field_name in reservoir_mappings:
-                reservoir = reservoir_mappings[permit.field_name]
-            else:
-                reservoir = extract_reservoir_name(permit.field_name)
+            # Apply corrections to get the correct field name
+            corrected_field_name = all_mappings.get(permit.field_name, permit.field_name)
+            
+            # Extract reservoir name from corrected field name
+            reservoir = extract_reservoir_name(corrected_field_name)
             
             if reservoir not in reservoir_data:
                 reservoir_data[reservoir] = {date: 0 for date in date_labels}
