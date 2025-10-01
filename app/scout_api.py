@@ -419,6 +419,50 @@ async def test_database_connection():
             "error_type": type(e).__name__
         }
 
+@router.get("/debug")
+async def debug_setup():
+    """Debug endpoint to check setup requirements"""
+    try:
+        import os
+        
+        # Check environment
+        database_url = os.getenv('DATABASE_URL')
+        
+        debug_info = {
+            "database_url_exists": bool(database_url),
+            "database_url_prefix": database_url[:20] + "..." if database_url else None,
+        }
+        
+        # Check psycopg2
+        try:
+            import psycopg2
+            debug_info["psycopg2_available"] = True
+        except ImportError as e:
+            debug_info["psycopg2_available"] = False
+            debug_info["psycopg2_error"] = str(e)
+        
+        # Check SQLAlchemy
+        try:
+            from sqlalchemy import create_engine, text
+            debug_info["sqlalchemy_available"] = True
+            
+            if database_url:
+                engine = create_engine(database_url)
+                with engine.connect() as conn:
+                    result = conn.execute(text("SELECT 1"))
+                    debug_info["sqlalchemy_connection"] = bool(result.fetchone())
+        except Exception as e:
+            debug_info["sqlalchemy_available"] = False
+            debug_info["sqlalchemy_error"] = str(e)
+        
+        return debug_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
 @router.post("/setup")
 async def setup_scout_tables(org_id: str = Query("default_org")):
     """Robust Scout v2.2 database setup using psycopg2"""

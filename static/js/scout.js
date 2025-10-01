@@ -157,6 +157,33 @@ class ScoutWidget {
         }
     }
     
+    async debugSetup() {
+        try {
+            console.log('🐛 Running debug checks...');
+            
+            const response = await fetch('/api/v1/scout/debug');
+            const result = await response.json();
+            
+            console.log('🐛 Debug result:', result);
+            
+            const debugInfo = [
+                `Database URL: ${result.database_url_exists ? '✅ Found' : '❌ Missing'}`,
+                `psycopg2: ${result.psycopg2_available ? '✅ Available' : '❌ Not available'}`,
+                `SQLAlchemy: ${result.sqlalchemy_available ? '✅ Available' : '❌ Not available'}`,
+                `DB Connection: ${result.sqlalchemy_connection ? '✅ Working' : '❌ Failed'}`
+            ];
+            
+            if (result.psycopg2_error) debugInfo.push(`psycopg2 error: ${result.psycopg2_error}`);
+            if (result.sqlalchemy_error) debugInfo.push(`SQLAlchemy error: ${result.sqlalchemy_error}`);
+            
+            this.showInfo(`🐛 Debug Info:\n${debugInfo.join('\n')}`);
+            
+        } catch (error) {
+            console.error('❌ Debug error:', error);
+            this.showError(`Debug failed: ${error}`);
+        }
+    }
+
     async testDatabase() {
         try {
             console.log('🔍 Testing database connection...');
@@ -540,9 +567,31 @@ class ScoutWidget {
         }
     }
 
+    renderWidget() {
+        const container = document.getElementById('scoutWidgetContainer');
+        if (!container) return;
+        
+        container.innerHTML = this.getFullUI();
+    }
+
+    toggleFiltersMinimized() {
+        this.filtersMinimized = !this.filtersMinimized;
+        this.renderWidget(); // Re-render the entire widget
+    }
+
     renderFilters() {
+        const isMobile = window.innerWidth <= 480;
+        const isMinimized = this.filtersMinimized || false;
+        
         return `
             <div class="scout-filters">
+                ${isMobile ? `
+                    <div class="mobile-filter-header" onclick="scoutWidget.toggleFiltersMinimized()" style="background-color: #f3f4f6; padding: 8px; cursor: pointer; border-radius: 4px; margin-bottom: 8px; text-align: center; font-weight: bold;">
+                        Scout v2.2 Filters ${isMinimized ? '▼' : '▲'}
+                    </div>
+                    <div class="mobile-filter-content" style="display: ${isMinimized ? 'none' : 'block'}">
+                ` : ''}
+                
                 <div class="filter-row">
                     <select onchange="scoutWidget.updateFilter('state_filter', this.value)">
                         <option value="default" ${this.filters.state_filter === 'default' ? 'selected' : ''}>Default</option>
@@ -611,11 +660,18 @@ class ScoutWidget {
                         🔍 Test DB
                     </button>
                     
+                    <button onclick="scoutWidget.debugSetup()" 
+                            style="background-color: #8b5cf6; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                        🐛 Debug
+                    </button>
+                    
                     <button onclick="scoutWidget.setupDatabase()" 
                             style="background-color: #dc2626; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
                         🔧 Fix Database
                     </button>
                 </div>
+                
+                ${isMobile ? '</div>' : ''}
             </div>
         `;
     }
