@@ -167,6 +167,9 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
             corrections = session.query(FieldCorrection).all()
             for correction in corrections:
                 field_corrections[correction.wrong_field_name] = correction.correct_field_name
+            logger.info(f"📊 Loaded {len(field_corrections)} field corrections from database")
+            if field_corrections:
+                logger.info(f"📊 Sample corrections: {dict(list(field_corrections.items())[:5])}")
         except Exception as e:
             logger.warning(f"Could not load field corrections: {e}")
         
@@ -175,6 +178,13 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
         all_mappings.update(field_corrections)  # Database corrections first
         if reservoir_mappings:
             all_mappings.update(reservoir_mappings)  # Frontend mappings override
+            logger.info(f"📊 Frontend mappings received: {len(reservoir_mappings)} items")
+            if reservoir_mappings:
+                logger.info(f"📊 Sample frontend mappings: {dict(list(reservoir_mappings.items())[:5])}")
+        
+        logger.info(f"📊 Final combined mappings: {len(all_mappings)} items")
+        if all_mappings:
+            logger.info(f"📊 Sample final mappings: {dict(list(all_mappings.items())[:5])}")
         
         # Process each permit
         for permit in permits:

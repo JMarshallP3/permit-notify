@@ -3428,6 +3428,9 @@ class PermitDashboard {
                 // Include reservoir mappings in the request
                 const mappingsParam = encodeURIComponent(JSON.stringify(this.reservoirMapping));
                 
+                console.log('🗺️ Reservoir mappings being sent:', this.reservoirMapping);
+                console.log('🗺️ Mappings param:', mappingsParam);
+                
                 const url = specificReservoir 
                     ? `/api/v1/reservoir-trends?days=${days}&reservoirs=${encodeURIComponent(specificReservoir)}&view_type=${viewType}&mappings=${mappingsParam}`
                     : `/api/v1/reservoir-trends?days=${days}&view_type=${viewType}&mappings=${mappingsParam}`;
