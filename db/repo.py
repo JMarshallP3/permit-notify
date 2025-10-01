@@ -194,8 +194,15 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
             # Apply corrections to get the correct field name
             corrected_field_name = all_mappings.get(permit.field_name, permit.field_name)
             
+            # Log a few examples of the mapping process
+            if len(reservoir_data) < 5:  # Only log first few for debugging
+                logger.info(f"📊 Mapping example: '{permit.field_name}' -> '{corrected_field_name}'")
+            
             # Extract reservoir name from corrected field name
             reservoir = extract_reservoir_name(corrected_field_name)
+            
+            if len(reservoir_data) < 5:  # Only log first few for debugging
+                logger.info(f"📊 Reservoir extraction: '{corrected_field_name}' -> '{reservoir}'")
             
             if reservoir not in reservoir_data:
                 reservoir_data[reservoir] = {date: 0 for date in date_labels}
@@ -219,7 +226,17 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
             '#6B7280',  # Gray
         ]
         
-        for i, (reservoir, daily_counts) in enumerate(reservoir_data.items()):
+        # Sort reservoirs by total count (descending) for better display
+        sorted_reservoirs = sorted(
+            reservoir_data.items(),
+            key=lambda x: sum(x[1].values()),
+            reverse=True
+        )
+        
+        # Log final reservoir names for debugging
+        logger.info(f"📊 Final reservoir names (top 10): {[name for name, _ in sorted_reservoirs[:10]]}")
+        
+        for i, (reservoir, daily_counts) in enumerate(sorted_reservoirs):
             # Get daily data
             daily_data = [daily_counts[date] for date in date_labels]
             
@@ -248,7 +265,7 @@ def get_reservoir_trends(days_back: int = 90, specific_reservoirs: List[str] = N
         return {
             'labels': date_labels,
             'datasets': datasets,
-            'reservoirs': list(reservoir_data.keys()),
+            'reservoirs': [name for name, _ in sorted_reservoirs],  # Use sorted order
             'date_range': {
                 'start': start_date.strftime('%Y-%m-%d'),
                 'end': end_date.strftime('%Y-%m-%d')

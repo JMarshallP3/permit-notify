@@ -899,8 +899,13 @@ async def get_reservoir_trends_api(
             import json
             try:
                 reservoir_mappings = json.loads(mappings)
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON in mappings parameter: {mappings}")
+                logger.info(f"📊 API received {len(reservoir_mappings)} reservoir mappings")
+                if reservoir_mappings:
+                    logger.info(f"📊 Sample API mappings: {dict(list(reservoir_mappings.items())[:3])}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON in mappings parameter: {mappings[:100]}... Error: {e}")
+        else:
+            logger.info("📊 No mappings parameter provided to API")
         
         trends_data = get_reservoir_trends(
             days_back=days, 
