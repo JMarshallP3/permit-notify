@@ -160,6 +160,12 @@ class ScoutWidget {
     async debugSetup() {
         try {
             console.log('🐛 Running debug checks...');
+            console.log('📱 Device info:', {
+                width: window.innerWidth,
+                height: window.innerHeight,
+                userAgent: navigator.userAgent,
+                isMobile: window.innerWidth <= 480
+            });
             
             const response = await fetch('/api/v1/scout/debug');
             const result = await response.json();
@@ -167,6 +173,8 @@ class ScoutWidget {
             console.log('🐛 Debug result:', result);
             
             const debugInfo = [
+                `Screen: ${window.innerWidth}x${window.innerHeight}`,
+                `Mobile: ${window.innerWidth <= 480 ? 'YES' : 'NO'}`,
                 `Database URL: ${result.database_url_exists ? '✅ Found' : '❌ Missing'}`,
                 `psycopg2: ${result.psycopg2_available ? '✅ Available' : '❌ Not available'}`,
                 `SQLAlchemy: ${result.sqlalchemy_available ? '✅ Available' : '❌ Not available'}`,
@@ -568,14 +576,24 @@ class ScoutWidget {
     }
 
     renderWidget() {
-        const container = document.getElementById('scoutWidgetContainer');
-        if (!container) return;
-        
-        container.innerHTML = this.getFullUI();
+        // Find the Scout widget container and re-render it
+        const modal = document.querySelector('.scout-modal');
+        if (modal) {
+            const content = modal.querySelector('.scout-widget-content');
+            if (content) {
+                content.innerHTML = this.getFullUI();
+            }
+        }
     }
 
     toggleFiltersMinimized() {
+        console.log('🔄 Toggle filters minimized clicked');
+        console.log('📱 Current mobile detection:', window.innerWidth <= 480, 'Width:', window.innerWidth);
+        console.log('📋 Current minimized state:', this.filtersMinimized);
+        
         this.filtersMinimized = !this.filtersMinimized;
+        console.log('📋 New minimized state:', this.filtersMinimized);
+        
         this.renderWidget(); // Re-render the entire widget
     }
 
@@ -583,97 +601,180 @@ class ScoutWidget {
         const isMobile = window.innerWidth <= 480;
         const isMinimized = this.filtersMinimized || false;
         
-        return `
-            <div class="scout-filters">
-                ${isMobile ? `
-                    <div class="mobile-filter-header" onclick="scoutWidget.toggleFiltersMinimized()" style="background-color: #f3f4f6; padding: 8px; cursor: pointer; border-radius: 4px; margin-bottom: 8px; text-align: center; font-weight: bold;">
-                        Scout v2.2 Filters ${isMinimized ? '▼' : '▲'}
+        if (isMobile) {
+            // Mobile layout with minimize functionality
+            return `
+                <div class="scout-filters">
+                    <div class="mobile-filter-header" onclick="scoutWidget.toggleFiltersMinimized()" style="background-color: #f3f4f6; padding: 12px; cursor: pointer; border-radius: 4px; margin-bottom: 8px; text-align: center; font-weight: bold; font-size: 16px; border: 1px solid #d1d5db;">
+                        Scout v2.2 Filters ${isMinimized ? '▼ Show' : '▲ Hide'}
                     </div>
                     <div class="mobile-filter-content" style="display: ${isMinimized ? 'none' : 'block'}">
-                ` : ''}
-                
-                <div class="filter-row">
-                    <select onchange="scoutWidget.updateFilter('state_filter', this.value)">
-                        <option value="default" ${this.filters.state_filter === 'default' ? 'selected' : ''}>Default</option>
-                        <option value="kept" ${this.filters.state_filter === 'kept' ? 'selected' : ''}>Kept</option>
-                        <option value="dismissed" ${this.filters.state_filter === 'dismissed' ? 'selected' : ''}>Dismissed</option>
-                        <option value="archived" ${this.filters.state_filter === 'archived' ? 'selected' : ''}>Archived</option>
-                        <option value="all" ${this.filters.state_filter === 'all' ? 'selected' : ''}>All</option>
-                    </select>
-                    
-                    <select onchange="scoutWidget.updateFilter('days', parseInt(this.value))">
-                        <option value="7" ${this.filters.days === 7 ? 'selected' : ''}>7 days</option>
-                        <option value="30" ${this.filters.days === 30 ? 'selected' : ''}>30 days</option>
-                        <option value="90" ${this.filters.days === 90 ? 'selected' : ''}>90 days</option>
-                    </select>
-                    
-                    <select onchange="scoutWidget.updateFilter('confidence', this.value)">
-                        <option value="">All Confidence</option>
-                        <option value="high" ${this.filters.confidence === 'high' ? 'selected' : ''}>High</option>
-                        <option value="medium" ${this.filters.confidence === 'medium' ? 'selected' : ''}>Medium</option>
-                        <option value="low" ${this.filters.confidence === 'low' ? 'selected' : ''}>Low</option>
-                    </select>
+                        <div class="filter-row">
+                            <select onchange="scoutWidget.updateFilter('state_filter', this.value)">
+                                <option value="default" ${this.filters.state_filter === 'default' ? 'selected' : ''}>Default</option>
+                                <option value="kept" ${this.filters.state_filter === 'kept' ? 'selected' : ''}>Kept</option>
+                                <option value="dismissed" ${this.filters.state_filter === 'dismissed' ? 'selected' : ''}>Dismissed</option>
+                                <option value="archived" ${this.filters.state_filter === 'archived' ? 'selected' : ''}>Archived</option>
+                                <option value="all" ${this.filters.state_filter === 'all' ? 'selected' : ''}>All</option>
+                            </select>
+                            
+                            <select onchange="scoutWidget.updateFilter('days', parseInt(this.value))">
+                                <option value="7" ${this.filters.days === 7 ? 'selected' : ''}>7 days</option>
+                                <option value="30" ${this.filters.days === 30 ? 'selected' : ''}>30 days</option>
+                                <option value="90" ${this.filters.days === 90 ? 'selected' : ''}>90 days</option>
+                            </select>
+                            
+                            <select onchange="scoutWidget.updateFilter('confidence', this.value)">
+                                <option value="">All Confidence</option>
+                                <option value="high" ${this.filters.confidence === 'high' ? 'selected' : ''}>High</option>
+                                <option value="medium" ${this.filters.confidence === 'medium' ? 'selected' : ''}>Medium</option>
+                                <option value="low" ${this.filters.confidence === 'low' ? 'selected' : ''}>Low</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filter-row">
+                            <input type="text" placeholder="County..." value="${this.filters.county}" 
+                                   onchange="scoutWidget.updateFilter('county', this.value)">
+                            <input type="text" placeholder="Operator..." value="${this.filters.operator}" 
+                                   onchange="scoutWidget.updateFilter('operator', this.value)">
+                            
+                            <select onchange="scoutWidget.updateFilter('source_type', this.value)">
+                                <option value="">All Sources</option>
+                                <option value="filing" ${this.filters.source_type === 'filing' ? 'selected' : ''}>SEC/Filings</option>
+                                <option value="gov_bulletin" ${this.filters.source_type === 'gov_bulletin' ? 'selected' : ''}>Gov Bulletins</option>
+                                <option value="pr" ${this.filters.source_type === 'pr' ? 'selected' : ''}>Press Releases</option>
+                                <option value="news" ${this.filters.source_type === 'news' ? 'selected' : ''}>News</option>
+                                <option value="forum" ${this.filters.source_type === 'forum' ? 'selected' : ''}>Forums</option>
+                                <option value="social" ${this.filters.source_type === 'social' ? 'selected' : ''}>Social/X</option>
+                                <option value="blog" ${this.filters.source_type === 'blog' ? 'selected' : ''}>Blogs</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filter-row">
+                            <label>
+                                <input type="checkbox" ${this.filters.breakouts_only ? 'checked' : ''} 
+                                       onchange="scoutWidget.updateFilter('breakouts_only', this.checked)">
+                                Breakouts only
+                            </label>
+                            
+                            <button onclick="scoutWidget.testCrawl()" 
+                                    style="background-color: #28a745; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-size: 12px;">
+                                🕷️ MRF
+                            </button>
+                            
+                            <button onclick="scoutWidget.testCrawlAll()" 
+                                    style="background-color: #007bff; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                                🌐 All Sources
+                            </button>
+                            
+                            <button onclick="scoutWidget.loadDemoInsights()" 
+                                    style="background-color: #6f42c1; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                                🚀 Demo v2.2
+                            </button>
+                            
+                            <button onclick="scoutWidget.testDatabase()" 
+                                    style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                                🔍 Test DB
+                            </button>
+                            
+                            <button onclick="scoutWidget.debugSetup()" 
+                                    style="background-color: #8b5cf6; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                                🐛 Debug
+                            </button>
+                            
+                            <button onclick="scoutWidget.setupDatabase()" 
+                                    style="background-color: #dc2626; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                                🔧 Fix Database
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="filter-row">
-                    <input type="text" placeholder="County..." value="${this.filters.county}" 
-                           onchange="scoutWidget.updateFilter('county', this.value)">
-                    <input type="text" placeholder="Operator..." value="${this.filters.operator}" 
-                           onchange="scoutWidget.updateFilter('operator', this.value)">
+            `;
+        } else {
+            // Desktop layout - no minimize functionality
+            return `
+                <div class="scout-filters">
+                    <div class="filter-row">
+                        <select onchange="scoutWidget.updateFilter('state_filter', this.value)">
+                            <option value="default" ${this.filters.state_filter === 'default' ? 'selected' : ''}>Default</option>
+                            <option value="kept" ${this.filters.state_filter === 'kept' ? 'selected' : ''}>Kept</option>
+                            <option value="dismissed" ${this.filters.state_filter === 'dismissed' ? 'selected' : ''}>Dismissed</option>
+                            <option value="archived" ${this.filters.state_filter === 'archived' ? 'selected' : ''}>Archived</option>
+                            <option value="all" ${this.filters.state_filter === 'all' ? 'selected' : ''}>All</option>
+                        </select>
+                        
+                        <select onchange="scoutWidget.updateFilter('days', parseInt(this.value))">
+                            <option value="7" ${this.filters.days === 7 ? 'selected' : ''}>7 days</option>
+                            <option value="30" ${this.filters.days === 30 ? 'selected' : ''}>30 days</option>
+                            <option value="90" ${this.filters.days === 90 ? 'selected' : ''}>90 days</option>
+                        </select>
+                        
+                        <select onchange="scoutWidget.updateFilter('confidence', this.value)">
+                            <option value="">All Confidence</option>
+                            <option value="high" ${this.filters.confidence === 'high' ? 'selected' : ''}>High</option>
+                            <option value="medium" ${this.filters.confidence === 'medium' ? 'selected' : ''}>Medium</option>
+                            <option value="low" ${this.filters.confidence === 'low' ? 'selected' : ''}>Low</option>
+                        </select>
+                    </div>
                     
-                    <select onchange="scoutWidget.updateFilter('source_type', this.value)">
-                        <option value="">All Sources</option>
-                        <option value="filing" ${this.filters.source_type === 'filing' ? 'selected' : ''}>SEC/Filings</option>
-                        <option value="gov_bulletin" ${this.filters.source_type === 'gov_bulletin' ? 'selected' : ''}>Gov Bulletins</option>
-                        <option value="pr" ${this.filters.source_type === 'pr' ? 'selected' : ''}>Press Releases</option>
-                        <option value="news" ${this.filters.source_type === 'news' ? 'selected' : ''}>News</option>
-                        <option value="forum" ${this.filters.source_type === 'forum' ? 'selected' : ''}>Forums</option>
-                        <option value="social" ${this.filters.source_type === 'social' ? 'selected' : ''}>Social/X</option>
-                        <option value="blog" ${this.filters.source_type === 'blog' ? 'selected' : ''}>Blogs</option>
-                    </select>
+                    <div class="filter-row">
+                        <input type="text" placeholder="County..." value="${this.filters.county}" 
+                               onchange="scoutWidget.updateFilter('county', this.value)">
+                        <input type="text" placeholder="Operator..." value="${this.filters.operator}" 
+                               onchange="scoutWidget.updateFilter('operator', this.value)">
+                        
+                        <select onchange="scoutWidget.updateFilter('source_type', this.value)">
+                            <option value="">All Sources</option>
+                            <option value="filing" ${this.filters.source_type === 'filing' ? 'selected' : ''}>SEC/Filings</option>
+                            <option value="gov_bulletin" ${this.filters.source_type === 'gov_bulletin' ? 'selected' : ''}>Gov Bulletins</option>
+                            <option value="pr" ${this.filters.source_type === 'pr' ? 'selected' : ''}>Press Releases</option>
+                            <option value="news" ${this.filters.source_type === 'news' ? 'selected' : ''}>News</option>
+                            <option value="forum" ${this.filters.source_type === 'forum' ? 'selected' : ''}>Forums</option>
+                            <option value="social" ${this.filters.source_type === 'social' ? 'selected' : ''}>Social/X</option>
+                            <option value="blog" ${this.filters.source_type === 'blog' ? 'selected' : ''}>Blogs</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-row">
+                        <label>
+                            <input type="checkbox" ${this.filters.breakouts_only ? 'checked' : ''} 
+                                   onchange="scoutWidget.updateFilter('breakouts_only', this.checked)">
+                            Breakouts only
+                        </label>
+                        
+                        <button onclick="scoutWidget.testCrawl()" 
+                                style="background-color: #28a745; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-size: 12px;">
+                            🕷️ MRF
+                        </button>
+                        
+                        <button onclick="scoutWidget.testCrawlAll()" 
+                                style="background-color: #007bff; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                            🌐 All Sources
+                        </button>
+                        
+                        <button onclick="scoutWidget.loadDemoInsights()" 
+                                style="background-color: #6f42c1; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                            🚀 Demo v2.2
+                        </button>
+                        
+                        <button onclick="scoutWidget.testDatabase()" 
+                                style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                            🔍 Test DB
+                        </button>
+                        
+                        <button onclick="scoutWidget.debugSetup()" 
+                                style="background-color: #8b5cf6; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                            🐛 Debug
+                        </button>
+                        
+                        <button onclick="scoutWidget.setupDatabase()" 
+                                style="background-color: #dc2626; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
+                            🔧 Fix Database
+                        </button>
+                    </div>
                 </div>
-                
-                <div class="filter-row">
-                    <label>
-                        <input type="checkbox" ${this.filters.breakouts_only ? 'checked' : ''} 
-                               onchange="scoutWidget.updateFilter('breakouts_only', this.checked)">
-                        Breakouts only
-                    </label>
-                    
-                    <button onclick="scoutWidget.testCrawl()" 
-                            style="background-color: #28a745; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-size: 12px;">
-                        🕷️ MRF
-                    </button>
-                    
-                    <button onclick="scoutWidget.testCrawlAll()" 
-                            style="background-color: #007bff; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
-                        🌐 All Sources
-                    </button>
-                    
-                    <button onclick="scoutWidget.loadDemoInsights()" 
-                            style="background-color: #6f42c1; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
-                        🚀 Demo v2.2
-                    </button>
-                    
-                    <button onclick="scoutWidget.testDatabase()" 
-                            style="background-color: #f59e0b; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
-                        🔍 Test DB
-                    </button>
-                    
-                    <button onclick="scoutWidget.debugSetup()" 
-                            style="background-color: #8b5cf6; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
-                        🐛 Debug
-                    </button>
-                    
-                    <button onclick="scoutWidget.setupDatabase()" 
-                            style="background-color: #dc2626; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-left: 5px; font-size: 12px;">
-                        🔧 Fix Database
-                    </button>
-                </div>
-                
-                ${isMobile ? '</div>' : ''}
-            </div>
-        `;
+            `;
+        }
     }
 
     updateFilter(key, value) {
