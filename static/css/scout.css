@@ -294,6 +294,7 @@
     .scout-widget-content {
         padding: 0.5rem;
         gap: 0.75rem;
+        min-height: 400px; /* Ensure enough height on mobile */
     }
     
     .scout-filters {
@@ -311,8 +312,17 @@
         width: 100%;
     }
     
+    .insights-container {
+        min-height: 300px; /* Ensure container is visible on mobile */
+        max-height: 50vh; /* Don't take up too much screen space */
+        border: 1px solid #e2e8f0; /* Lighter border on mobile */
+        padding: 0.75rem;
+        font-size: 14px;
+    }
+    
     .insight-card {
         padding: 0.75rem;
+        margin-bottom: 0.75rem;
     }
     
     .insight-header {
@@ -343,6 +353,62 @@
     
     .analytics-chip {
         font-size: 0.7rem;
+    }
+    
+    /* Make loading, empty, and error states more visible on mobile */
+    .loading-state,
+    .empty-state,
+    .error-state {
+        min-height: 150px;
+        padding: 1.5rem 1rem;
+        font-size: 16px;
+        background: #f9fafb;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+    }
+    
+    .loading-state div,
+    .empty-state div,
+    .error-state div {
+        line-height: 1.5;
+    }
+    
+    /* Debug info styling for mobile */
+    .debug-info-mobile {
+        background: #f8f9fa !important;
+        border-radius: 8px !important;
+        padding: 1rem !important;
+        margin: 0.5rem 0 !important;
+        font-size: 14px !important;
+    }
+    
+    .debug-info-mobile h3 {
+        font-size: 16px !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.75rem !important;
+    }
+    
+    .debug-info-mobile pre {
+        background: white !important;
+        padding: 0.75rem !important;
+        border-radius: 4px !important;
+        font-size: 12px !important;
+        line-height: 1.4 !important;
+        overflow-x: auto !important;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+    }
+    
+    .debug-info-mobile button {
+        background: #007bff !important;
+        color: white !important;
+        border: none !important;
+        padding: 10px 16px !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+        margin-top: 1rem !important;
+        font-size: 14px !important;
+        width: 100% !important;
     }
 }
 

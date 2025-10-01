@@ -125,7 +125,19 @@ class ScoutWidget {
     
     async loadDemoInsights() {
         try {
-            this.showInfo('Loading Scout v2.2 demo insights with enhanced analytics...');
+            console.log('🚀 Loading demo insights...');
+            
+            // Find container first
+            const container = document.getElementById('scoutInsightsContainer');
+            console.log('📦 Container found:', !!container);
+            
+            if (!container) {
+                this.showError('Scout insights container not found!');
+                return;
+            }
+            
+            // Show loading state
+            container.innerHTML = '<div class="loading-state"><div>Loading Scout v2.2 demo insights...</div></div>';
             
             const response = await fetch('/api/v1/scout/insights/demo?org_id=default_org');
             
@@ -134,25 +146,36 @@ class ScoutWidget {
             }
             
             const data = await response.json();
+            console.log('📊 Demo response:', data);
             
-            if (data.success) {
+            if (data.success && data.insights) {
                 this.insights = data.insights || [];
                 console.log('📊 Demo insights loaded:', this.insights.length, 'insights');
-                console.log('📊 First insight sample:', this.insights[0]);
                 
-                this.renderInsights();
-                this.showSuccess('🚀 Scout v2.2 Demo Mode Active! Featuring multi-source intelligence, breakout detection, and deep analytics.');
-                
-                // Double-check the container after rendering
-                const container = document.getElementById('scoutInsightsContainer');
-                console.log('📊 Container after render:', container ? container.innerHTML.length + ' chars' : 'not found');
-                console.log('📊 Container HTML preview:', container ? container.innerHTML.substring(0, 200) + '...' : 'not found');
-                console.log('📊 Container element:', container);
+                if (this.insights.length > 0) {
+                    console.log('📊 First insight sample:', this.insights[0]);
+                    
+                    // Render insights directly
+                    this.renderInsights();
+                    
+                    // Verify content was added
+                    console.log('📊 Container after render:', container.innerHTML.length, 'chars');
+                    console.log('📊 Container content preview:', container.innerHTML.substring(0, 300));
+                    
+                    // Show success toast
+                    this.showSuccess('🚀 Scout v2.2 Demo Mode Active! Featuring multi-source intelligence, breakout detection, and deep analytics.');
+                } else {
+                    container.innerHTML = '<div class="empty-state"><div>No demo insights available</div></div>';
+                }
             } else {
                 throw new Error(data.detail || 'Demo insights failed');
             }
         } catch (error) {
             console.error('Error loading demo insights:', error);
+            const container = document.getElementById('scoutInsightsContainer');
+            if (container) {
+                container.innerHTML = `<div class="error-state"><div>Failed to load demo insights: ${error.message}</div></div>`;
+            }
             this.showError(`Demo insights failed: ${error.message}`);
         }
     }
@@ -192,8 +215,11 @@ class ScoutWidget {
             
             // Display debug info in the insights container
             if (container) {
+                const isMobile = window.innerWidth <= 480;
+                const debugClass = isMobile ? 'debug-info-mobile' : '';
+                
                 container.innerHTML = `
-                    <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin: 1rem 0;">
+                    <div class="${debugClass}" style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin: 1rem 0;">
                         <h3 style="margin-top: 0; color: #495057;">🐛 Debug Information</h3>
                         <pre style="background: white; padding: 1rem; border-radius: 4px; font-size: 14px; line-height: 1.4; overflow-x: auto;">${debugInfo.join('\n')}</pre>
                         <button onclick="scoutWidget.loadInsights()" style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 1rem;">
