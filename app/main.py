@@ -400,21 +400,30 @@ async def startup_event():
         # Run Alembic migrations on startup
         try:
             import os
-            import sys
-            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from alembic.config import Config
+            from alembic import command
             
             if os.getenv('DATABASE_URL'):
                 logger.info("Running database migrations...")
-                from run_migration import run_migrations
-                success = run_migrations()
-                if success:
-                    logger.info("✅ Database migrations completed successfully")
-                else:
-                    logger.error("❌ Migration failed - continuing startup anyway")
+                database_url = os.getenv('DATABASE_URL')
+                logger.info(f"Using DATABASE_URL: {database_url[:20]}...")
+                
+                # Create Alembic config
+                alembic_cfg = Config("alembic.ini")
+                
+                # Override the database URL
+                alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+                
+                # Run the migration
+                logger.info("Starting migration upgrade...")
+                command.upgrade(alembic_cfg, "head")
+                logger.info("✅ Database migrations completed successfully")
             else:
                 logger.info("Skipping migrations - no DATABASE_URL set")
         except Exception as migration_error:
             logger.error(f"❌ Migration failed: {migration_error}")
+            import traceback
+            logger.error(f"Migration traceback: {traceback.format_exc()}")
             # Continue startup even if migrations fail
         
         logger.info("✅ Database initialization completed")
