@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PermitTracker - Session Management</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/static/css/auth.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#2563eb">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="dashboard-header">
+            <div class="header-content">
+                <h1>PermitTracker</h1>
+                <div class="header-actions">
+                    <a href="/dashboard" class="btn-secondary">Dashboard</a>
+                    <button id="logout-btn" class="btn-danger">Logout</button>
+                </div>
+            </div>
+        </header>
+        
+        <main class="dashboard-main">
+            <div class="page-header">
+                <h2>Session Management</h2>
+                <p>Manage your active sessions across devices</p>
+            </div>
+            
+            <div class="sessions-container">
+                <div class="sessions-header">
+                    <h3>Active Sessions</h3>
+                    <button id="logout-all-btn" class="btn-danger">Logout All Devices</button>
+                </div>
+                
+                <div id="sessions-list" class="sessions-list">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading sessions...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="user-info">
+                <h3>Account Information</h3>
+                <div id="user-details" class="user-details">
+                    <!-- User details will be populated here -->
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/static/js/sessions.js"></script>
+</body>
+</html>

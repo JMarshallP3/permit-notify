@@ -34,6 +34,16 @@ services:
       - SCRAPE_MAX_PAGES=10
       - RAILWAY_ENVIRONMENT=development
       - PYTHONPATH=/app
+      # Authentication configuration
+      - AUTH_JWT_SECRET=dev_jwt_secret_change_in_production
+      - AUTH_ACCESS_TTL=15m
+      - AUTH_REFRESH_TTL=30d
+      - AUTH_COOKIE_DOMAIN=localhost
+      - AUTH_COOKIE_SECURE=false
+      - MAX_SESSIONS_PER_USER=5
+      # Feature flags
+      - FEATURE_TOTP_2FA=false
+      - FEATURE_WEBAUTHN=false
     depends_on:
       postgres:
         condition: service_healthy

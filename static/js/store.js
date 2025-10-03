@@ -89,7 +89,11 @@
   const listeners = new Set();
   let lastEventId = 0;
   let hasInit = false;
-  let currentOrgId = 'default_org'; // TODO: Get from auth/session
+  let currentOrgId = 'default_org';
+  let accessToken = null;
+  let ws = null;
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 5;
 
   function notify() {
     for (const cb of listeners) { try { cb(); } catch {} }
@@ -109,13 +113,28 @@
   }
 
   function openWS() {
+    // Get access token from cookies
+    const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+      const [key, value] = cookie.trim().split('=');
+      acc[key] = value;
+      return acc;
+    }, {});
+    
+    accessToken = cookies.access_token;
+    
+    if (!accessToken) {
+      console.warn('No access token available for WebSocket connection');
+      return;
+    }
+    
     let wsUrl;
     if (location.protocol === "https:") {
-      wsUrl = `wss://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}`;
+      wsUrl = `wss://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}&access_token=${encodeURIComponent(accessToken)}`;
     } else {
-      wsUrl = `ws://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}`;
+      wsUrl = `ws://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}&access_token=${encodeURIComponent(accessToken)}`;
     }
-    const ws = new WebSocket(wsUrl);
+    
+    ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('🔄 Real-time sync connected');
@@ -134,10 +153,31 @@
         console.warn('WebSocket message error:', e);
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       console.log('🔌 Real-time sync disconnected, reconnecting...');
-      // backoff reconnect
-      setTimeout(openWS, 1500);
+      
+      // Handle authentication errors
+      if (event.code === 4001) {
+        console.warn('WebSocket authentication failed, redirecting to login');
+        window.location.href = '/login';
+        return;
+      }
+      
+      if (event.code === 4003) {
+        console.warn('WebSocket access denied to organization');
+        return;
+      }
+      
+      // Exponential backoff for reconnection
+      if (reconnectAttempts < maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+        reconnectAttempts++;
+        setTimeout(() => {
+          openWS();
+        }, delay);
+      } else {
+        console.error('Max reconnection attempts reached');
+      }
     };
     ws.onerror = () => {
       try { ws.close(); } catch {}
@@ -171,6 +211,27 @@
   const Store = {
     init: async (orgId = 'default_org') => {
       if (hasInit) return;
+      
+      // Check authentication first
+      try {
+        const response = await fetch(`${API_BASE}/auth/me`, {
+          credentials: 'include'
+        });
+        
+        if (!response.ok) {
+          console.warn('Authentication required, redirecting to login');
+          window.location.href = '/login';
+          return;
+        }
+        
+        const userData = await response.json();
+        console.log('Authenticated as:', userData.email);
+      } catch (error) {
+        console.warn('Auth check failed:', error);
+        window.location.href = '/login';
+        return;
+      }
+      
       hasInit = true;
       currentOrgId = orgId;
       
