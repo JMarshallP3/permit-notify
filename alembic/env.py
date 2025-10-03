@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import our database models
 from db.session import Base
 from db.models import Permit  # Import all models to ensure they're registered
-from db.auth_models import User, Org, OrgMembership, Session, PasswordResetToken  # Import auth models
+from db.auth_models import User, Org, OrgMembership, Session, PasswordReset  # Import auth models
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
