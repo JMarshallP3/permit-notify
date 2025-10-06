@@ -17,8 +17,8 @@ from db.auth_models import User, OrgMembership, Session as UserSession, Org
 
 
 # Configuration
-AUTH_COOKIE_DOMAIN = os.getenv("AUTH_COOKIE_DOMAIN", "localhost")
-AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"
+AUTH_COOKIE_DOMAIN = os.getenv("AUTH_COOKIE_DOMAIN", None)  # None = use current domain
+AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "true").lower() == "true"  # Default secure for HTTPS
 
 # Router
 router = APIRouter(prefix="/auth", tags=["authentication"])
