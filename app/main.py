@@ -38,7 +38,7 @@ app = FastAPI(
 )
 
 # Add CORS middleware for real-time sync
-FRONTEND_ORIGINS = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+FRONTEND_ORIGINS = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://localhost:8000,https://permittracker.up.railway.app").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,

@@ -122,7 +122,7 @@ def set_cookies(response: Response, access_token: str, refresh_token: str):
         httponly=True,
         secure=AUTH_COOKIE_SECURE,
         samesite="lax",
-        domain=AUTH_COOKIE_DOMAIN if AUTH_COOKIE_DOMAIN != "localhost" else None,
+        domain=AUTH_COOKIE_DOMAIN,
         max_age=900  # 15 minutes
     )
     
@@ -133,7 +133,7 @@ def set_cookies(response: Response, access_token: str, refresh_token: str):
         httponly=True,
         secure=AUTH_COOKIE_SECURE,
         samesite="lax",
-        domain=AUTH_COOKIE_DOMAIN if AUTH_COOKIE_DOMAIN != "localhost" else None,
+        domain=AUTH_COOKIE_DOMAIN,
         max_age=2592000  # 30 days
     )
 

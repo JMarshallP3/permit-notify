@@ -25,7 +25,7 @@ from db.auth_models import User, Org, OrgMembership, Session as UserSession, Pas
 AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", secrets.token_urlsafe(32))
 AUTH_ACCESS_TTL = os.getenv("AUTH_ACCESS_TTL", "15m")
 AUTH_REFRESH_TTL = os.getenv("AUTH_REFRESH_TTL", "30d")
-AUTH_COOKIE_DOMAIN = os.getenv("AUTH_COOKIE_DOMAIN", "localhost")
+AUTH_COOKIE_DOMAIN = os.getenv("AUTH_COOKIE_DOMAIN", None)  # None = use current domain
 FEATURE_TOTP_2FA = os.getenv("FEATURE_TOTP_2FA", "false").lower() == "true"
 FEATURE_WEBAUTHN = os.getenv("FEATURE_WEBAUTHN", "false").lower() == "true"
 MAX_SESSIONS_PER_USER = int(os.getenv("MAX_SESSIONS_PER_USER", "5"))
