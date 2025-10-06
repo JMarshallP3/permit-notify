@@ -52,23 +52,32 @@ class PermitOut(BaseModel):
     id: int
     org_id: str
     status_no: Optional[str] = None
+    status_date: Optional[str] = None  # Added missing field
     operator_name: Optional[str] = None
     lease_name: Optional[str] = None
     field_name: Optional[str] = None
     version: int
     updated_at: datetime
+    created_at: Optional[datetime] = None  # Added missing field
 
     @classmethod
     def from_orm_row(cls, row: Permit):
+        # Format status_date as MM-DD-YYYY to match to_dict() format
+        status_date_formatted = None
+        if row.status_date:
+            status_date_formatted = row.status_date.strftime('%m-%d-%Y')
+            
         return cls(
             id=row.id,
             org_id=row.org_id,
             status_no=row.status_no,
+            status_date=status_date_formatted,
             operator_name=row.operator_name,
             lease_name=row.lease_name,
             field_name=row.field_name,
             version=row.version,
             updated_at=row.updated_at,
+            created_at=row.created_at,
         )
 
 class PermitDeltaResponse(BaseModel):
