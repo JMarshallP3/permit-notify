@@ -626,16 +626,36 @@ async def debug_migrate_skip():
             """)
             column_exists = connection.execute(check_column).fetchone() is not None
             
+            # Check current alembic_version table structure
+            version_info = text("""
+                SELECT character_maximum_length 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'alembic_version' 
+                AND column_name = 'version_num'
+            """)
+            version_length = connection.execute(version_info).fetchone()
+            max_length = version_length[0] if version_length else "unknown"
+            
             if column_exists:
+                # Use just the migration ID, not the full filename
+                migration_id = "013_add_tenant_isolation_and_events"
+                
+                # Truncate if necessary (most alembic_version columns are 32 chars)
+                if max_length and isinstance(max_length, int) and len(migration_id) > max_length:
+                    migration_id = migration_id[:max_length]
+                
                 # Manually update alembic_version to skip migration 013
-                update_version = text("UPDATE alembic_version SET version_num = '013_add_tenant_isolation_and_events'")
-                connection.execute(update_version)
+                update_version = text("UPDATE alembic_version SET version_num = :version_id")
+                connection.execute(update_version, {"version_id": migration_id})
                 connection.commit()
                 
                 return {
                     "status": "success",
-                    "message": "Skipped migration 013 - org_id column already exists",
-                    "action": "Migration version updated to 013, can now continue with remaining migrations"
+                    "message": f"Skipped migration 013 - org_id column already exists",
+                    "migration_id": migration_id,
+                    "column_max_length": max_length,
+                    "action": "Migration version updated, can now continue with remaining migrations"
                 }
             else:
                 return {
