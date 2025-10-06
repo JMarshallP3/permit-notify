@@ -173,6 +173,8 @@ async def register(
                 password=user_data.password,
                 username=user_data.username
             )
+            # Get user ID immediately to avoid session issues
+            user_id = str(user.id)
         except Exception as e:
             # Handle duplicate email/username
             if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
@@ -185,7 +187,7 @@ async def register(
                 detail="Failed to create user account"
             )
         
-        # Create default org membership
+        # Create default org membership using user_id string
         try:
             with get_session() as session:
                 # Ensure default org exists
@@ -195,16 +197,9 @@ async def register(
                     session.add(default_org)
                     session.commit()
                 
-                # Debug: Check if user.id exists
-                if not hasattr(user, 'id') or not user.id:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail=f"User object missing ID: {user}"
-                    )
-                
-                # Create membership as owner
+                # Create membership as owner using user_id string
                 membership = OrgMembership(
-                    user_id=user.id,
+                    user_id=user_id,
                     org_id="default_org",
                     role="owner"
                 )
@@ -213,13 +208,15 @@ async def register(
         except Exception as e:
             # Enhanced error logging
             import traceback
-            error_details = f"Org membership error: {str(e)} | User: {getattr(user, 'id', 'NO_ID')} | Traceback: {traceback.format_exc()}"
+            error_details = f"Org membership error: {str(e)} | User ID: {user_id} | Traceback: {traceback.format_exc()}"
             
             # If org creation fails, we should clean up the user
             try:
                 with get_session() as cleanup_session:
-                    cleanup_session.delete(user)
-                    cleanup_session.commit()
+                    user_to_delete = cleanup_session.query(User).filter(User.id == user_id).first()
+                    if user_to_delete:
+                        cleanup_session.delete(user_to_delete)
+                        cleanup_session.commit()
             except:
                 pass  # Best effort cleanup
             raise HTTPException(
@@ -227,39 +224,45 @@ async def register(
                 detail=f"Failed to create organization membership: {error_details}"
             )
         
-        # Create session
+        # Create session and return user data
         try:
-            user_agent = request.headers.get("user-agent")
-            ip_address = request.client.host
-            access_token, refresh_token = auth_service.create_session(
-                user, user_agent, ip_address
-            )
-            
-            # Set cookies
-            set_cookies(response, access_token, refresh_token)
+            # Get user object for session creation and response
+            with get_session() as session:
+                user = session.query(User).filter(User.id == user_id).first()
+                if not user:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="User not found after creation"
+                    )
+                
+                user_agent = request.headers.get("user-agent")
+                ip_address = request.client.host
+                access_token, refresh_token = auth_service.create_session(
+                    user, user_agent, ip_address
+                )
+                
+                # Set cookies
+                set_cookies(response, access_token, refresh_token)
+                
+                # Get user orgs
+                user_orgs = auth_service.get_user_orgs(user.id)
+                
+                return LoginResponse(
+                    user=UserResponse(
+                        id=str(user.id),
+                        email=user.email,
+                        username=user.username,
+                        is_active=user.is_active,
+                        created_at=user.created_at,
+                        orgs=user_orgs
+                    ),
+                    message="Registration successful"
+                )
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user session"
+                detail=f"Failed to create user session: {str(e)}"
             )
-        
-        # Get user orgs
-        try:
-            user_orgs = auth_service.get_user_orgs(user.id)
-        except Exception as e:
-            user_orgs = []  # Default to empty if org lookup fails
-        
-        return LoginResponse(
-            user=UserResponse(
-                id=str(user.id),
-                email=user.email,
-                username=user.username,
-                is_active=user.is_active,
-                created_at=user.created_at,
-                orgs=user_orgs
-            ),
-            message="Registration successful"
-        )
         
     except HTTPException:
         raise
