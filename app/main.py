@@ -261,7 +261,7 @@ async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_o
         
         # Verify access token
         try:
-            payload = auth_service.verify_token(access_token)
+            payload = auth_service.verify_access_token(access_token)
             user_id = payload.get("sub")
             if not user_id:
                 await websocket.close(code=4001, reason="Invalid token")
@@ -973,6 +973,30 @@ async def debug_migrate():
             "error": str(e),
             "traceback": traceback.format_exc()
         }
+
+@app.get("/debug/check-cookies")
+async def debug_check_cookies(request: Request):
+    """Debug endpoint to check what cookies are being sent."""
+    try:
+        cookies = dict(request.cookies)
+        headers = dict(request.headers)
+        
+        return {
+            "success": True,
+            "cookies": cookies,
+            "cookie_names": list(cookies.keys()),
+            "has_access_token": "access_token" in cookies,
+            "has_refresh_token": "refresh_token" in cookies,
+            "access_token_value": cookies.get("access_token", "NOT_FOUND")[:50] + "..." if cookies.get("access_token") else "NOT_FOUND",
+            "cookie_header": headers.get("cookie", "NO_COOKIE_HEADER"),
+            "user_agent": headers.get("user-agent", "NO_USER_AGENT")
+        }
+    except Exception as e:
+        return {
+            "error": f"Cookie debug failed: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
+
 
 @app.post("/admin/enable-scraper")
 async def enable_background_scraper():
