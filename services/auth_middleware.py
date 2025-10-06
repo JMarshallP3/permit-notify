@@ -7,7 +7,7 @@ from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from services.auth import auth_service, get_auth
+from services.auth import auth_service
 from db.session import get_session
 from db.auth_models import User, OrgMembership
 
@@ -20,15 +20,23 @@ class AuthMiddleware:
     
     async def get_current_user(self, request: Request) -> Optional[User]:
         """Get current authenticated user from request."""
-        auth_payload = await get_auth(request)
-        if not auth_payload:
+        # Try to get JWT from cookies first
+        access_token = request.cookies.get("access_token")
+        if not access_token:
             return None
         
-        user_id = auth_payload.get("sub")
-        if not user_id:
+        try:
+            # Verify the JWT token
+            payload = auth_service.verify_access_token(access_token)
+            user_id = payload.get("sub")
+            if not user_id:
+                return None
+            
+            # Get user from database
+            return auth_service.get_user_by_id(user_id)
+        except Exception as e:
+            # Token is invalid or expired
             return None
-        
-        return auth_service.get_user_by_id(user_id)
     
     async def require_auth(self, request: Request) -> User:
         """Require authentication - raise 401 if not authenticated."""
@@ -173,3 +181,21 @@ async def get_auth_context(request: Request) -> AuthContext:
     user = await require_auth(request)
     org_context = await get_org_context(request)
     return AuthContext(user, org_context)
+
+
+# FastAPI Dependencies
+async def get_current_user(request: Request) -> Optional[User]:
+    """FastAPI dependency to get current authenticated user."""
+    middleware = AuthMiddleware()
+    return await middleware.get_current_user(request)
+
+
+async def require_authenticated_user(request: Request) -> User:
+    """FastAPI dependency that requires authentication."""
+    middleware = AuthMiddleware()
+    return await middleware.require_auth(request)
+
+
+async def get_user_auth_context(request: Request) -> AuthContext:
+    """FastAPI dependency to get full auth context."""
+    return await get_auth_context(request)

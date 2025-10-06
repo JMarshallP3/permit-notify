@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy.orm import Session
 
 from services.auth import auth_service
-from services.auth_middleware import require_auth, get_auth_context, AuthContext
+from services.auth_middleware import require_auth, get_auth_context, AuthContext, require_authenticated_user
 from db.session import get_session
 from db.auth_models import User, OrgMembership, Session as UserSession
 
@@ -166,44 +166,78 @@ async def register(
         )
     
     try:
-        # Create user
-        user = auth_service.create_user(
-            email=user_data.email,
-            password=user_data.password,
-            username=user_data.username
-        )
+        # Create user with proper error handling
+        try:
+            user = auth_service.create_user(
+                email=user_data.email,
+                password=user_data.password,
+                username=user_data.username
+            )
+        except Exception as e:
+            # Handle duplicate email/username
+            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email or username already exists"
+                )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user account"
+            )
         
         # Create default org membership
-        with get_session() as session:
-            # Ensure default org exists
-            from db.auth_models import Org
-            default_org = session.query(Org).filter(Org.id == "default_org").first()
-            if not default_org:
-                default_org = Org(id="default_org", name="Default Organization")
-                session.add(default_org)
+        try:
+            with get_session() as session:
+                # Ensure default org exists
+                from db.auth_models import Org
+                default_org = session.query(Org).filter(Org.id == "default_org").first()
+                if not default_org:
+                    default_org = Org(id="default_org", name="Default Organization")
+                    session.add(default_org)
+                    session.commit()
+                
+                # Create membership as owner
+                membership = OrgMembership(
+                    user_id=user.id,
+                    org_id="default_org",
+                    role="owner"
+                )
+                session.add(membership)
                 session.commit()
-            
-            # Create membership as owner
-            membership = OrgMembership(
-                user_id=user.id,
-                org_id="default_org",
-                role="owner"
+        except Exception as e:
+            # If org creation fails, we should clean up the user
+            try:
+                with get_session() as cleanup_session:
+                    cleanup_session.delete(user)
+                    cleanup_session.commit()
+            except:
+                pass  # Best effort cleanup
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create organization membership"
             )
-            session.add(membership)
-            session.commit()
         
         # Create session
-        user_agent = request.headers.get("user-agent")
-        ip_address = request.client.host
-        access_token, refresh_token = auth_service.create_session(
-            user, user_agent, ip_address
-        )
-        
-        # Set cookies
-        set_cookies(response, access_token, refresh_token)
+        try:
+            user_agent = request.headers.get("user-agent")
+            ip_address = request.client.host
+            access_token, refresh_token = auth_service.create_session(
+                user, user_agent, ip_address
+            )
+            
+            # Set cookies
+            set_cookies(response, access_token, refresh_token)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user session"
+            )
         
         # Get user orgs
-        user_orgs = auth_service.get_user_orgs(user.id)
+        try:
+            user_orgs = auth_service.get_user_orgs(user.id)
+        except Exception as e:
+            user_orgs = []  # Default to empty if org lookup fails
         
         return LoginResponse(
             user=UserResponse(
@@ -346,17 +380,20 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    auth_context: AuthContext = Depends(get_auth_context)
+    user: User = Depends(require_authenticated_user)
 ):
     """Get current user information."""
-    user_orgs = auth_service.get_user_orgs(auth_context.user_id)
+    try:
+        user_orgs = auth_service.get_user_orgs(user.id)
+    except Exception as e:
+        user_orgs = []  # Default to empty if org lookup fails
     
     return UserResponse(
-        id=str(auth_context.user.id),
-        email=auth_context.user.email,
-        username=auth_context.user.username,
-        is_active=auth_context.user.is_active,
-        created_at=auth_context.user.created_at,
+        id=str(user.id),
+        email=user.email,
+        username=user.username,
+        is_active=user.is_active,
+        created_at=user.created_at,
         orgs=user_orgs
     )
 

@@ -38,12 +38,13 @@ app = FastAPI(
 )
 
 # Add CORS middleware for real-time sync
+FRONTEND_ORIGINS = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten for production
+    allow_origins=FRONTEND_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Cookie", "Authorization", "Content-Type", "X-Org-ID"],
 )
 
 # ---------------------- Pydantic Models for Real-time Sync ----------------------
@@ -367,16 +368,20 @@ async def _cleanup_websockets_periodically():
 @app.on_event("startup")
 async def startup_event():
     """Initialize database tables and start background cron on startup."""
-    # Start background cron for permit scraping
-    try:
-        import sys
-        import os
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from background_cron import background_cron
-        background_cron.start()
-        logger.info("🚀 Background permit scraper started (every 10 minutes)")
-    except Exception as e:
-        logger.error(f"❌ Failed to start background cron: {e}")
+    # Start background cron for permit scraping (only if enabled)
+    SCRAPER_ENABLED = os.getenv("SCRAPER_ENABLED", "false").lower() == "true"
+    if SCRAPER_ENABLED:
+        try:
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from background_cron import background_cron
+            background_cron.start()
+            logger.info("🚀 Background permit scraper started (every 10 minutes)")
+        except Exception as e:
+            logger.error(f"❌ Failed to start background cron: {e}")
+    else:
+        logger.info("⏸️ Background scraper disabled (SCRAPER_ENABLED=false)")
     
     # Start background event poller for real-time WebSocket broadcasting
     try:
