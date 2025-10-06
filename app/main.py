@@ -977,7 +977,7 @@ async def debug_test_permit_insert():
         logger.info(f"Fetching permits for {today}")
         
         # Get fresh data using the working RRCW1Client
-        result = rrc_w1_client.fetch_all(today, today, pages=2)  # Test with 2 pages
+        result = rrc_w1_client.fetch_all(today, today, max_pages=2)  # Test with 2 pages
         
         if not result.get("items"):
             return {"error": "No permits found from scraper", "result": result}
@@ -1035,7 +1035,7 @@ async def scrape():
         
         # Use the working RRCW1Client instead of the broken Scraper
         logger.info(f"Scraping permits for {today} using RRCW1Client")
-        result = rrc_w1_client.fetch_all(today, today, pages=5)  # Limit to 5 pages for /scrape
+        result = rrc_w1_client.fetch_all(today, today, max_pages=5)  # Limit to 5 pages for /scrape
         
         # Store results in database if we have items
         if result.get("items"):
