@@ -439,6 +439,37 @@ async def startup_event():
 async def api_status():
     return {"message": "Permit Notify API running"}
 
+@app.get("/api/debug/tables")
+async def debug_tables():
+    """Debug endpoint to check if auth tables exist."""
+    try:
+        from db.session import get_session
+        from db.auth_models import User, Org
+        
+        with get_session() as session:
+            # Try to query tables to see if they exist
+            try:
+                user_count = session.query(User).count()
+                org_count = session.query(Org).count()
+                return {
+                    "status": "success",
+                    "tables_exist": True,
+                    "user_count": user_count,
+                    "org_count": org_count
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "tables_exist": False,
+                    "error": str(e)
+                }
+    except Exception as e:
+        return {
+            "status": "error",
+            "database_connection": False,
+            "error": str(e)
+        }
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
