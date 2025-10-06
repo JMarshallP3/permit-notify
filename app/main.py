@@ -542,6 +542,63 @@ async def debug_schema():
             "traceback": traceback.format_exc()
         }
 
+@app.post("/api/debug/migrate-step")
+async def debug_migrate_step():
+    """Run migrations one step at a time to avoid conflicts."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        from alembic.runtime.migration import MigrationContext
+        from sqlalchemy import create_engine
+        import traceback
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"status": "error", "error": "DATABASE_URL not set"}
+        
+        # Create Alembic config
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+        
+        engine = create_engine(database_url)
+        
+        # Get current revision
+        with engine.connect() as connection:
+            context = MigrationContext.configure(connection)
+            current_rev = context.get_current_revision()
+        
+        # Run migration to next version (not all the way to head)
+        try:
+            command.upgrade(alembic_cfg, "+1")  # Upgrade by one step
+            
+            # Get new revision
+            with engine.connect() as connection:
+                context = MigrationContext.configure(connection)
+                new_rev = context.get_current_revision()
+            
+            return {
+                "status": "success",
+                "message": "Migration step completed",
+                "previous_revision": current_rev,
+                "new_revision": new_rev,
+                "next_action": "Run again to continue to next migration" if new_rev != "018_add_auth_tables" else "All migrations complete!"
+            }
+            
+        except Exception as migration_error:
+            return {
+                "status": "error",
+                "error": str(migration_error),
+                "traceback": traceback.format_exc(),
+                "current_revision": current_rev
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 @app.post("/api/debug/migrate")
 async def debug_migrate():
     """Debug endpoint to manually run migrations and see detailed errors."""
