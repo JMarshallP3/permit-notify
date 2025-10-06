@@ -599,6 +599,57 @@ async def debug_migrate_step():
             "traceback": traceback.format_exc()
         }
 
+@app.post("/api/debug/migrate-skip")
+async def debug_migrate_skip():
+    """Skip problematic migration 013 since org_id column already exists."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        from alembic.runtime.migration import MigrationContext
+        from sqlalchemy import create_engine, text
+        import traceback
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"status": "error", "error": "DATABASE_URL not set"}
+        
+        engine = create_engine(database_url)
+        
+        # Check if org_id column exists in permits table
+        with engine.connect() as connection:
+            check_column = text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'permits' 
+                AND column_name = 'org_id'
+            """)
+            column_exists = connection.execute(check_column).fetchone() is not None
+            
+            if column_exists:
+                # Manually update alembic_version to skip migration 013
+                update_version = text("UPDATE alembic_version SET version_num = '013_add_tenant_isolation_and_events'")
+                connection.execute(update_version)
+                connection.commit()
+                
+                return {
+                    "status": "success",
+                    "message": "Skipped migration 013 - org_id column already exists",
+                    "action": "Migration version updated to 013, can now continue with remaining migrations"
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "org_id column doesn't exist - migration 013 should run normally"
+                }
+            
+    except Exception as e:
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 @app.post("/api/debug/migrate")
 async def debug_migrate():
     """Debug endpoint to manually run migrations and see detailed errors."""
