@@ -715,6 +715,78 @@ async def debug_fix_alembic():
             "traceback": traceback.format_exc()
         }
 
+@app.post("/api/debug/skip-to-018")
+async def debug_skip_to_018():
+    """Skip all problematic migrations and jump directly to 018 (auth tables)."""
+    try:
+        from sqlalchemy import create_engine, text
+        import traceback
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"status": "error", "error": "DATABASE_URL not set"}
+        
+        engine = create_engine(database_url)
+        
+        with engine.connect() as connection:
+            # Check what columns already exist in permits table
+            permits_columns = text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'permits' 
+                ORDER BY column_name
+            """)
+            existing_columns = [row[0] for row in connection.execute(permits_columns).fetchall()]
+            
+            # Check what tables already exist
+            existing_tables = text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('users', 'orgs', 'org_memberships', 'sessions', 'password_resets', 'scout_w1_permits', 'field_corrections', 'events')
+                ORDER BY table_name
+            """)
+            tables_list = [row[0] for row in connection.execute(existing_tables).fetchall()]
+            
+            # Determine what migrations to skip based on existing schema
+            migrations_to_skip = []
+            
+            if 'org_id' in existing_columns:
+                migrations_to_skip.append('013_add_tenant_isolation_and_events')
+            if 'is_injection_well' in existing_columns:
+                migrations_to_skip.append('014_add_is_injection_well_column')
+            if 'field_corrections' in tables_list and 'org_id' in existing_columns:
+                migrations_to_skip.append('015_add_org_id_to_field_corrections')
+            if 'scout_w1_permits' in tables_list:
+                migrations_to_skip.append('016_add_scout_tables')
+                migrations_to_skip.append('017_scout_v22_updates')
+            
+            # Set migration version to 017 (just before auth tables)
+            connection.execute(text("DELETE FROM alembic_version"))
+            connection.execute(
+                text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
+                {"version": "017_scout_v22_updates"[:32]}  # Truncate to 32 chars
+            )
+            connection.commit()
+            
+            return {
+                "status": "success",
+                "message": "Skipped problematic migrations based on existing schema",
+                "existing_columns": existing_columns,
+                "existing_tables": tables_list,
+                "skipped_migrations": migrations_to_skip,
+                "new_version": "017_scout_v22_updates",
+                "action": "Now run migrate-step once to apply migration 018 (auth tables)"
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 @app.post("/api/debug/migrate")
 async def debug_migrate():
     """Debug endpoint to manually run migrations and see detailed errors."""
