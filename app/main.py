@@ -273,12 +273,12 @@ async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_o
         # Connect to WebSocket manager with user context
         await ws_manager.connect(websocket, org_id, user_id)
         
-        try:
-            while True:
-                # Keep connection alive; client need not send anything
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            await ws_manager.disconnect(websocket, org_id)
+    try:
+        while True:
+            # Keep connection alive; client need not send anything
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, org_id)
             
     except Exception as e:
         logger.error(f"WebSocket authentication error: {e}")
@@ -371,14 +371,14 @@ async def startup_event():
     # Start background cron for permit scraping (only if enabled)
     SCRAPER_ENABLED = os.getenv("SCRAPER_ENABLED", "false").lower() == "true"
     if SCRAPER_ENABLED:
-        try:
-            import sys
-            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            from background_cron import background_cron
-            background_cron.start()
-            logger.info("🚀 Background permit scraper started (every 10 minutes)")
-        except Exception as e:
-            logger.error(f"❌ Failed to start background cron: {e}")
+    try:
+        import sys
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from background_cron import background_cron
+        background_cron.start()
+        logger.info("🚀 Background permit scraper started (every 10 minutes)")
+    except Exception as e:
+        logger.error(f"❌ Failed to start background cron: {e}")
     else:
         logger.info("⏸️ Background scraper disabled (SCRAPER_ENABLED=false)")
     
@@ -780,6 +780,90 @@ async def debug_skip_to_018():
                 "action": "Now run migrate-step once to apply migration 018 (auth tables)"
             }
             
+    except Exception as e:
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+@app.post("/api/debug/test-registration")
+async def debug_test_registration():
+    """Test registration flow step by step to identify the 500 error."""
+    try:
+        from services.auth import auth_service
+        from db.session import get_session
+        from db.auth_models import User, Org, OrgMembership
+        import traceback
+        
+        test_email = "test@example.com"
+        test_password = "testpassword123"
+        
+        # Step 1: Test password hashing
+        try:
+            hashed_password = auth_service.hash_password(test_password)
+            step1_result = "✅ Password hashing works"
+        except Exception as e:
+            return {"status": "error", "step": "password_hashing", "error": str(e)}
+        
+        # Step 2: Test database connection and user creation
+        try:
+            with get_session() as session:
+                # Check if test user already exists
+                existing_user = session.query(User).filter(User.email == test_email).first()
+                if existing_user:
+                    session.delete(existing_user)
+                    session.commit()
+                
+                # Try to create user
+                user = User(
+                    email=test_email,
+                    password_hash=hashed_password,
+                    is_active=True
+                )
+                session.add(user)
+                session.commit()
+                session.refresh(user)
+                step2_result = f"✅ User creation works - ID: {user.id}"
+                
+                # Clean up test user
+                session.delete(user)
+                session.commit()
+                
+        except Exception as e:
+            return {"status": "error", "step": "user_creation", "error": str(e), "traceback": traceback.format_exc()}
+        
+        # Step 3: Test org lookup/creation
+        try:
+            with get_session() as session:
+                default_org = session.query(Org).filter(Org.id == "default_org").first()
+                if default_org:
+                    step3_result = f"✅ Default org exists - Name: {default_org.name}"
+                else:
+                    step3_result = "❌ Default org missing"
+        except Exception as e:
+            return {"status": "error", "step": "org_lookup", "error": str(e)}
+        
+        # Step 4: Test JWT token creation
+        try:
+            test_data = {"sub": "test-user-id", "org_id": "default_org", "role": "owner"}
+            access_token = auth_service.create_access_token(data=test_data)
+            step4_result = f"✅ JWT creation works - Length: {len(access_token)}"
+        except Exception as e:
+            return {"status": "error", "step": "jwt_creation", "error": str(e)}
+        
+        return {
+            "status": "success",
+            "message": "All registration components work individually",
+            "steps": {
+                "1_password_hashing": step1_result,
+                "2_user_creation": step2_result,
+                "3_org_lookup": step3_result,
+                "4_jwt_creation": step4_result
+            },
+            "conclusion": "The 500 error is likely in the registration endpoint logic, not the core components"
+        }
+        
     except Exception as e:
         return {
             "status": "error", 
