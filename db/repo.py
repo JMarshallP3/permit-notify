@@ -62,6 +62,10 @@ def preprocess_permit_data(item: Dict[str, Any]) -> Dict[str, Any]:
     if not processed.get('org_id'):
         processed['org_id'] = 'default_org'
     
+    # Ensure is_injection_well is set (defaults to False)
+    if 'is_injection_well' not in processed:
+        processed['is_injection_well'] = False
+    
     return processed
 
 def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:

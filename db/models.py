@@ -61,7 +61,7 @@ class Permit(Base):
     w1_last_enriched_at = sa.Column(sa.DateTime(timezone=True))  # W-1 Last Enriched At
     
     # Injection well flag (for trend analysis filtering) - TEMPORARILY COMMENTED OUT UNTIL MIGRATION RUNS
-    # is_injection_well = Column(Boolean, nullable=False, default=False, index=True)
+    is_injection_well = Column(Boolean, nullable=False, default=False, index=True)
     
     # Optimistic concurrency control
     version = Column(Integer, nullable=False, default=1)
@@ -123,7 +123,7 @@ class Permit(Base):
             'w1_text_snippet': self.w1_text_snippet,
             'w1_last_enriched_at': self.w1_last_enriched_at.isoformat() if self.w1_last_enriched_at else None,
             # Injection well flag - TEMPORARILY COMMENTED OUT UNTIL MIGRATION RUNS
-            # 'is_injection_well': self.is_injection_well,
+            'is_injection_well': self.is_injection_well,
             # Metadata (created_at moved to end)
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None
