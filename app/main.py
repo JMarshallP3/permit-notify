@@ -965,6 +965,77 @@ async def debug_migrate():
             "traceback": traceback.format_exc()
         }
 
+@app.get("/debug/test-single-permit")
+async def debug_test_single_permit():
+    """Test inserting a single permit with raw error details."""
+    try:
+        import traceback
+        from datetime import datetime
+        from db.session import get_session
+        from db.models import Permit
+        from db.repo import preprocess_permit_data
+        
+        # Get one permit from today's data
+        today = datetime.now().strftime("%m/%d/%Y")
+        result = rrc_w1_client.fetch_all(today, today, max_pages=1)
+        
+        if not result.get("items"):
+            return {"error": "No permits found"}
+        
+        # Take the first permit
+        raw_item = result["items"][0]
+        
+        # Test preprocessing
+        try:
+            processed_item = preprocess_permit_data(raw_item)
+        except Exception as preprocess_error:
+            return {
+                "error": "Preprocessing failed",
+                "preprocess_error": str(preprocess_error),
+                "preprocess_traceback": traceback.format_exc(),
+                "raw_item": raw_item
+            }
+        
+        # Test direct database insertion
+        try:
+            with get_session() as session:
+                # Filter to only fields that exist in the model
+                clean_item = {}
+                for field, value in processed_item.items():
+                    if hasattr(Permit, field):
+                        clean_item[field] = value
+                
+                # Try to create the permit object
+                permit = Permit(**clean_item)
+                session.add(permit)
+                session.commit()
+                
+                return {
+                    "success": True,
+                    "permit_id": permit.id,
+                    "status_no": permit.status_no,
+                    "raw_item": raw_item,
+                    "processed_item": processed_item,
+                    "clean_item": clean_item
+                }
+                
+        except Exception as db_error:
+            return {
+                "error": "Database insertion failed",
+                "db_error": str(db_error),
+                "db_traceback": traceback.format_exc(),
+                "raw_item": raw_item,
+                "processed_item": processed_item,
+                "clean_item": clean_item if 'clean_item' in locals() else None
+            }
+            
+    except Exception as e:
+        return {
+            "error": f"Debug test failed: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
+
+
 @app.get("/debug/test-permit-insert")
 async def debug_test_permit_insert():
     """Debug endpoint to test permit insertion with detailed error logging."""
@@ -994,14 +1065,23 @@ async def debug_test_permit_insert():
             try:
                 logger.info(f"Testing permit {i+1}: {item.get('status_no')}")
                 
-                # Test individual permit insertion
-                single_result = upsert_permits([item])
-                
-                if single_result.get("errors", 0) > 0:
+                # Test individual permit insertion with detailed error capture
+                try:
+                    single_result = upsert_permits([item])
+                    
+                    if single_result.get("errors", 0) > 0:
+                        detailed_errors.append({
+                            "permit": item.get("status_no"),
+                            "item_data": item,
+                            "result": single_result,
+                            "note": "upsert_permits returned error but no exception thrown"
+                        })
+                except Exception as upsert_error:
                     detailed_errors.append({
                         "permit": item.get("status_no"),
                         "item_data": item,
-                        "result": single_result
+                        "upsert_error": str(upsert_error),
+                        "upsert_traceback": traceback.format_exc()
                     })
                     
             except Exception as e:
