@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from services.auth import auth_service
 from services.auth_middleware import require_auth, get_auth_context, AuthContext, require_authenticated_user
 from db.session import get_session
-from db.auth_models import User, OrgMembership, Session as UserSession
+from db.auth_models import User, OrgMembership, Session as UserSession, Org
 
 
 # Configuration
@@ -189,7 +189,6 @@ async def register(
         try:
             with get_session() as session:
                 # Ensure default org exists
-                from db.auth_models import Org
                 default_org = session.query(Org).filter(Org.id == "default_org").first()
                 if not default_org:
                     default_org = Org(id="default_org", name="Default Organization")
