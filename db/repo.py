@@ -14,6 +14,56 @@ from .models import Permit
 
 logger = logging.getLogger(__name__)
 
+def preprocess_permit_data(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Preprocess permit data to ensure correct data types for database insertion.
+    
+    Args:
+        item: Raw permit data dictionary
+        
+    Returns:
+        Processed permit data with correct types
+    """
+    processed = item.copy()
+    
+    # Convert status_date from string to date object
+    if processed.get('status_date'):
+        try:
+            from datetime import datetime
+            date_str = processed['status_date']
+            if isinstance(date_str, str):
+                # Handle MM/DD/YYYY format
+                parsed_date = datetime.strptime(date_str, '%m/%d/%Y').date()
+                processed['status_date'] = parsed_date
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse status_date '{processed.get('status_date')}': {e}")
+            processed['status_date'] = None
+    
+    # Convert total_depth from string to numeric
+    if processed.get('total_depth'):
+        try:
+            depth_str = processed['total_depth']
+            if isinstance(depth_str, str) and depth_str.strip():
+                processed['total_depth'] = float(depth_str)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse total_depth '{processed.get('total_depth')}': {e}")
+            processed['total_depth'] = None
+    
+    # Convert empty strings to None for nullable fields
+    nullable_string_fields = ['api_no', 'operator_number', 'lease_name', 'well_no', 
+                              'district', 'county', 'wellbore_profile', 'filing_purpose', 
+                              'current_queue', 'stacked_lateral_parent_well_dp']
+    
+    for field in nullable_string_fields:
+        if processed.get(field) == '':
+            processed[field] = None
+    
+    # Ensure org_id is set
+    if not processed.get('org_id'):
+        processed['org_id'] = 'default_org'
+    
+    return processed
+
 def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Insert new permits or update existing ones.
@@ -38,9 +88,12 @@ def upsert_permits(items: List[Dict[str, Any]]) -> Dict[str, int]:
                     logger.warning(f"Skipping item without primary key: {item}")
                     continue
                 
+                # Preprocess the item to ensure correct data types
+                processed_item = preprocess_permit_data(item)
+                
                 # Remove any fields that don't exist in the current model
                 clean_item = {}
-                for field, value in item.items():
+                for field, value in processed_item.items():
                     if hasattr(Permit, field):
                         clean_item[field] = value
                     else:
