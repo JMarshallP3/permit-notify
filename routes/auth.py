@@ -167,6 +167,8 @@ async def register(
     
     try:
         # Create user with proper error handling
+        user = None
+        user_id = None
         try:
             user = auth_service.create_user(
                 email=user_data.email,
@@ -175,16 +177,20 @@ async def register(
             )
             # Get user ID immediately to avoid session issues
             user_id = str(user.id)
+        except HTTPException as http_exc:
+            # Re-raise HTTP exceptions directly (they have proper status codes)
+            raise http_exc
         except Exception as e:
-            # Handle duplicate email/username
-            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+            # Handle unexpected errors
+            error_msg = str(e)
+            if "duplicate key" in error_msg.lower() or "unique constraint" in error_msg.lower():
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Email or username already exists"
                 )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user account"
+                detail=f"Failed to create user account: {error_msg}"
             )
         
         # Create default org membership using user_id string
