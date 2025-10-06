@@ -373,7 +373,6 @@ async def startup_event():
     if SCRAPER_ENABLED:
         try:
             import sys
-            import os
             sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from background_cron import background_cron
             background_cron.start()
@@ -404,7 +403,6 @@ async def startup_event():
         
         # Run Alembic migrations on startup
         try:
-            import os
             from alembic.config import Config
             from alembic import command
             
