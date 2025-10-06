@@ -474,6 +474,74 @@ async def debug_tables():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/api/debug/schema")
+async def debug_schema():
+    """Debug endpoint to check current database schema."""
+    try:
+        from sqlalchemy import create_engine, text
+        import traceback
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"status": "error", "error": "DATABASE_URL not set"}
+        
+        engine = create_engine(database_url)
+        
+        with engine.connect() as connection:
+            # Check if auth tables exist
+            tables_query = text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('users', 'orgs', 'org_memberships', 'sessions', 'password_resets')
+                ORDER BY table_name;
+            """)
+            
+            tables_result = connection.execute(tables_query).fetchall()
+            existing_tables = [row[0] for row in tables_result]
+            
+            # Check current migration version
+            try:
+                version_query = text("SELECT version_num FROM alembic_version ORDER BY version_num DESC LIMIT 1;")
+                version_result = connection.execute(version_query).fetchone()
+                current_version = version_result[0] if version_result else None
+            except:
+                current_version = "No alembic_version table"
+            
+            # Check if permits table has org_id column (this might be causing the duplicate error)
+            try:
+                permits_columns_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'permits' 
+                    AND column_name LIKE '%org%'
+                    ORDER BY column_name;
+                """)
+                permits_columns = connection.execute(permits_columns_query).fetchall()
+                permits_org_columns = [row[0] for row in permits_columns]
+            except:
+                permits_org_columns = ["Error checking permits table"]
+            
+            return {
+                "status": "success",
+                "current_migration_version": current_version,
+                "existing_auth_tables": existing_tables,
+                "permits_org_columns": permits_org_columns,
+                "diagnosis": {
+                    "all_auth_tables_exist": len(existing_tables) == 5,
+                    "some_auth_tables_exist": len(existing_tables) > 0,
+                    "migration_version_matches": current_version == "018_add_auth_tables"
+                }
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 @app.post("/api/debug/migrate")
 async def debug_migrate():
     """Debug endpoint to manually run migrations and see detailed errors."""
