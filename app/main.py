@@ -976,8 +976,8 @@ async def debug_test_permit_insert():
         today = datetime.now().strftime("%m/%d/%Y")
         logger.info(f"Fetching permits for {today}")
         
-        # Get fresh data from scraper
-        result = scraper_instance.run()
+        # Get fresh data using the working RRCW1Client
+        result = rrc_w1_client.fetch_all(today, today, pages=2)  # Test with 2 pages
         
         if not result.get("items"):
             return {"error": "No permits found from scraper", "result": result}
@@ -1029,14 +1029,21 @@ async def debug_test_permit_insert():
 async def scrape():
     """Scrape permit data and store in database."""
     try:
-        # Run scraper
-        result = scraper_instance.run()
+        # Get today's date
+        from datetime import datetime
+        today = datetime.now().strftime("%m/%d/%Y")
+        
+        # Use the working RRCW1Client instead of the broken Scraper
+        logger.info(f"Scraping permits for {today} using RRCW1Client")
+        result = rrc_w1_client.fetch_all(today, today, pages=5)  # Limit to 5 pages for /scrape
         
         # Store results in database if we have items
         if result.get("items"):
             upsert_result = upsert_permits(result["items"])
             result["database"] = upsert_result
             logger.info(f"Stored {upsert_result['inserted']} new permits, updated {upsert_result['updated']} permits")
+        else:
+            result["database"] = {"inserted": 0, "updated": 0, "note": "No permits found"}
         
         return result
     except Exception as e:
