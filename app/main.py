@@ -977,8 +977,6 @@ async def debug_test_permit_insert():
         logger.info(f"Fetching permits for {today}")
         
         # Get fresh data from scraper
-        from services.scraper.scraper import PermitScraper
-        scraper_instance = PermitScraper()
         result = scraper_instance.run()
         
         if not result.get("items"):
