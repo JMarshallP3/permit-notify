@@ -409,6 +409,41 @@ async def refresh_token(
     return {"message": "Token refreshed successfully"}
 
 
+@router.get("/me-simple")
+async def get_current_user_simple(request: Request):
+    """Simple version of /auth/me for debugging."""
+    try:
+        # Get token from cookies
+        access_token = request.cookies.get("access_token")
+        if not access_token:
+            return {"error": "No access token in cookies"}
+        
+        # Verify token
+        try:
+            payload = auth_service.verify_access_token(access_token)
+            user_id = payload.get("sub")
+            if not user_id:
+                return {"error": "No user ID in token"}
+        except Exception as e:
+            return {"error": f"Token verification failed: {str(e)}"}
+        
+        # Get user directly with new session
+        with get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {"error": "User not found"}
+            
+            return {
+                "success": True,
+                "user_id": str(user.id),
+                "email": user.email,
+                "username": user.username,
+                "is_active": user.is_active
+            }
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
     user: User = Depends(require_authenticated_user)
