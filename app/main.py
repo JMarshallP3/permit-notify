@@ -670,6 +670,51 @@ async def debug_migrate_skip():
             "traceback": traceback.format_exc()
         }
 
+@app.post("/api/debug/fix-alembic")
+async def debug_fix_alembic():
+    """Fix alembic version table with multiple heads issue."""
+    try:
+        from sqlalchemy import create_engine, text
+        import traceback
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"status": "error", "error": "DATABASE_URL not set"}
+        
+        engine = create_engine(database_url)
+        
+        with engine.connect() as connection:
+            # Check current alembic_version entries
+            check_versions = text("SELECT version_num FROM alembic_version ORDER BY version_num")
+            current_versions = connection.execute(check_versions).fetchall()
+            version_list = [row[0] for row in current_versions]
+            
+            # Clear all entries and set to the correct single version
+            connection.execute(text("DELETE FROM alembic_version"))
+            
+            # Insert the correct current version (013 since we skipped it)
+            connection.execute(
+                text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
+                {"version": "013_add_tenant_isolation_and_eve"}
+            )
+            
+            connection.commit()
+            
+            return {
+                "status": "success",
+                "message": "Fixed alembic version table",
+                "previous_versions": version_list,
+                "new_version": "013_add_tenant_isolation_and_eve",
+                "action": "Can now continue with step-by-step migrations"
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 @app.post("/api/debug/migrate")
 async def debug_migrate():
     """Debug endpoint to manually run migrations and see detailed errors."""
