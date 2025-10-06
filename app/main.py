@@ -965,6 +965,68 @@ async def debug_migrate():
             "traceback": traceback.format_exc()
         }
 
+@app.get("/debug/test-permit-insert")
+async def debug_test_permit_insert():
+    """Debug endpoint to test permit insertion with detailed error logging."""
+    try:
+        import traceback
+        from datetime import datetime
+        
+        # Get today's date and fetch permits
+        today = datetime.now().strftime("%m/%d/%Y")
+        logger.info(f"Fetching permits for {today}")
+        
+        # Get fresh data from scraper
+        from services.scraper.scraper import PermitScraper
+        scraper_instance = PermitScraper()
+        result = scraper_instance.run()
+        
+        if not result.get("items"):
+            return {"error": "No permits found from scraper", "result": result}
+        
+        # Try to insert with detailed error tracking
+        from db.repo import upsert_permits
+        from db.session import get_session
+        from db.models import Permit
+        
+        detailed_errors = []
+        items = result["items"][:5]  # Test with first 5 permits
+        
+        for i, item in enumerate(items):
+            try:
+                logger.info(f"Testing permit {i+1}: {item.get('status_no')}")
+                
+                # Test individual permit insertion
+                single_result = upsert_permits([item])
+                
+                if single_result.get("errors", 0) > 0:
+                    detailed_errors.append({
+                        "permit": item.get("status_no"),
+                        "item_data": item,
+                        "result": single_result
+                    })
+                    
+            except Exception as e:
+                detailed_errors.append({
+                    "permit": item.get("status_no", "unknown"),
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+        
+        return {
+            "success": True,
+            "total_permits_tested": len(items),
+            "detailed_errors": detailed_errors,
+            "sample_permit": items[0] if items else None
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Debug test failed: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
+
+
 @app.get("/scrape")
 async def scrape():
     """Scrape permit data and store in database."""
