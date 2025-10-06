@@ -123,8 +123,8 @@ class AuthService:
         """Hash token for storage."""
         return hashlib.sha256(token.encode()).hexdigest()
     
-    def create_user(self, email: str, password: str, username: Optional[str] = None) -> User:
-        """Create new user account."""
+    def create_user(self, email: str, password: str, username: Optional[str] = None) -> str:
+        """Create new user account and return user ID."""
         with get_session() as session:
             # Check if user already exists
             existing_user = session.query(User).filter(User.email == email).first()
@@ -153,7 +153,8 @@ class AuthService:
             session.commit()
             session.refresh(user)
             
-            return user
+            # Return user ID as string to avoid session issues
+            return str(user.id)
     
     def authenticate_user(self, email: str, password: str) -> Optional[User]:
         """Authenticate user with email and password."""

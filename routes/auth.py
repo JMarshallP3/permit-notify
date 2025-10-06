@@ -167,16 +167,13 @@ async def register(
     
     try:
         # Create user with proper error handling
-        user = None
         user_id = None
         try:
-            user = auth_service.create_user(
+            user_id = auth_service.create_user(
                 email=user_data.email,
                 password=user_data.password,
                 username=user_data.username
             )
-            # Get user ID immediately to avoid session issues
-            user_id = str(user.id)
         except HTTPException as http_exc:
             # Re-raise HTTP exceptions directly (they have proper status codes)
             raise http_exc
