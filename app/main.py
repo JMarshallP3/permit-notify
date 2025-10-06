@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="PermitTracker",
-    description="Professional permit monitoring dashboard and API",
-    version="1.0.0"
+    description="Professional permit monitoring dashboard and API - FIXED SYNTAX ERROR",
+    version="1.0.1"
 )
 
 # Add CORS middleware for real-time sync
