@@ -292,37 +292,52 @@ async def login(
         )
     
     # Authenticate user
-    user = auth_service.authenticate_user(login_data.email, login_data.password)
-    if not user:
+    user_id = auth_service.authenticate_user(login_data.email, login_data.password)
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
     
-    # Create session
-    user_agent = request.headers.get("user-agent")
-    ip_address = request.client.host
-    access_token, refresh_token = auth_service.create_session(
-        user, user_agent, ip_address
-    )
-    
-    # Set cookies
-    set_cookies(response, access_token, refresh_token)
-    
-    # Get user orgs
-    user_orgs = auth_service.get_user_orgs(user.id)
-    
-    return LoginResponse(
-        user=UserResponse(
-            id=str(user.id),
-            email=user.email,
-            username=user.username,
-            is_active=user.is_active,
-            created_at=user.created_at,
-            orgs=user_orgs
-        ),
-        message="Login successful"
-    )
+    # Get user object and create session
+    try:
+        with get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="User not found after authentication"
+                )
+            
+            # Create session
+            user_agent = request.headers.get("user-agent")
+            ip_address = request.client.host
+            access_token, refresh_token = auth_service.create_session(
+                user, user_agent, ip_address
+            )
+            
+            # Set cookies
+            set_cookies(response, access_token, refresh_token)
+            
+            # Get user orgs
+            user_orgs = auth_service.get_user_orgs(user.id)
+            
+            return LoginResponse(
+                user=UserResponse(
+                    id=str(user.id),
+                    email=user.email,
+                    username=user.username,
+                    is_active=user.is_active,
+                    created_at=user.created_at,
+                    orgs=user_orgs
+                ),
+                message="Login successful"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create login session: {str(e)}"
+        )
 
 
 @router.post("/logout")

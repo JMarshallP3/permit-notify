@@ -156,8 +156,8 @@ class AuthService:
             # Return user ID as string to avoid session issues
             return str(user.id)
     
-    def authenticate_user(self, email: str, password: str) -> Optional[User]:
-        """Authenticate user with email and password."""
+    def authenticate_user(self, email: str, password: str) -> Optional[str]:
+        """Authenticate user with email and password, return user ID."""
         with get_session() as session:
             user = session.query(User).filter(User.email == email).first()
             if not user or not user.is_active:
@@ -166,7 +166,7 @@ class AuthService:
             if not self.verify_password(password, user.password_hash):
                 return None
             
-            return user
+            return str(user.id)
     
     def create_session(self, user: User, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> tuple[str, str]:
         """Create user session with access and refresh tokens."""
