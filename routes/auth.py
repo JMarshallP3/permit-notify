@@ -195,6 +195,13 @@ async def register(
                     session.add(default_org)
                     session.commit()
                 
+                # Debug: Check if user.id exists
+                if not hasattr(user, 'id') or not user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"User object missing ID: {user}"
+                    )
+                
                 # Create membership as owner
                 membership = OrgMembership(
                     user_id=user.id,
@@ -204,6 +211,10 @@ async def register(
                 session.add(membership)
                 session.commit()
         except Exception as e:
+            # Enhanced error logging
+            import traceback
+            error_details = f"Org membership error: {str(e)} | User: {getattr(user, 'id', 'NO_ID')} | Traceback: {traceback.format_exc()}"
+            
             # If org creation fails, we should clean up the user
             try:
                 with get_session() as cleanup_session:
@@ -213,7 +224,7 @@ async def register(
                 pass  # Best effort cleanup
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create organization membership"
+                detail=f"Failed to create organization membership: {error_details}"
             )
         
         # Create session
