@@ -274,14 +274,14 @@ async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_o
         await ws_manager.connect(websocket, org_id, user_id)
         
         # Keep connection alive
-    try:
-        while True:
-            # Keep connection alive; client need not send anything
-            await websocket.receive_text()
-    except WebSocketDisconnect:
+        try:
+            while True:
+                # Keep connection alive; client need not send anything
+                await websocket.receive_text()
+        except WebSocketDisconnect:
             pass
         finally:
-        await ws_manager.disconnect(websocket, org_id)
+            await ws_manager.disconnect(websocket, org_id)
             
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket, org_id)
@@ -376,14 +376,14 @@ async def startup_event():
     # Start background cron for permit scraping (only if enabled)
     SCRAPER_ENABLED = os.getenv("SCRAPER_ENABLED", "false").lower() == "true"
     if SCRAPER_ENABLED:
-    try:
-        import sys
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from background_cron import background_cron
-        background_cron.start()
-        logger.info("🚀 Background permit scraper started (every 10 minutes)")
-    except Exception as e:
-        logger.error(f"❌ Failed to start background cron: {e}")
+        try:
+            import sys
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from background_cron import background_cron
+            background_cron.start()
+            logger.info("🚀 Background permit scraper started (every 10 minutes)")
+        except Exception as e:
+            logger.error(f"❌ Failed to start background cron: {e}")
     else:
         logger.info("⏸️ Background scraper disabled (SCRAPER_ENABLED=false)")
     
