@@ -965,6 +965,61 @@ async def debug_migrate():
             "traceback": traceback.format_exc()
         }
 
+@app.post("/admin/enable-scraper")
+async def enable_background_scraper():
+    """Enable background scraper (admin endpoint)."""
+    try:
+        # This would normally set an environment variable, but for now we'll just return info
+        return {
+            "message": "To enable automatic scraping every 5 minutes, set SCRAPER_ENABLED=true in Railway environment variables",
+            "current_status": "disabled",
+            "instructions": [
+                "1. Go to Railway dashboard",
+                "2. Go to your project settings", 
+                "3. Add environment variable: SCRAPER_ENABLED=true",
+                "4. Redeploy the application",
+                "5. Background scraper will start automatically"
+            ],
+            "alternative": "Use /scrape endpoint manually to get latest permits"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/debug/check-dates")
+async def debug_check_dates():
+    """Check raw database dates to debug date display issues."""
+    try:
+        from db.session import get_session
+        from db.models import Permit
+        
+        with get_session() as session:
+            # Get recent permits with raw database values
+            permits = session.query(Permit).order_by(Permit.id.desc()).limit(10).all()
+            
+            results = []
+            for permit in permits:
+                results.append({
+                    "status_no": permit.status_no,
+                    "raw_status_date": str(permit.status_date),
+                    "raw_created_at": str(permit.created_at),
+                    "raw_updated_at": str(permit.updated_at),
+                    "to_dict_status_date": permit.to_dict().get("status_date"),
+                    "to_dict_created_at": permit.to_dict().get("created_at")
+                })
+            
+            return {
+                "success": True,
+                "recent_permits": results
+            }
+            
+    except Exception as e:
+        return {
+            "error": f"Debug failed: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
+
+
 @app.get("/debug/test-single-permit")
 async def debug_test_single_permit():
     """Test inserting a single permit with raw error details."""
