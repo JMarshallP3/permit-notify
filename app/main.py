@@ -792,7 +792,36 @@ async def debug_skip_to_018():
             "traceback": traceback.format_exc()
         }
 
-@app.post("/api/debug/test-registration")
+@app.post("/api/debug/test-password-hash")
+async def debug_test_password_hash():
+    """Test password hashing functionality."""
+    try:
+        from services.auth import auth_service
+        
+        # Test password hashing
+        test_password = "testpass123"
+        password_hash = auth_service.hash_password(test_password)
+        
+        # Test password verification
+        is_valid = auth_service.verify_password(test_password, password_hash)
+        
+        return {
+            "status": "success",
+            "password_hash_length": len(password_hash),
+            "hash_starts_with": password_hash[:10] + "...",
+            "verification_works": is_valid,
+            "hash_method": "argon2" if password_hash.startswith("$argon2") else "bcrypt"
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@app.post("/api/debug/test-user-creation")
 async def debug_test_registration():
     """Test registration flow step by step to identify the 500 error."""
     try:
