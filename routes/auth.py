@@ -445,27 +445,59 @@ async def get_current_user_simple(request: Request):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
-    user: User = Depends(require_authenticated_user)
-):
+async def get_current_user_info(request: Request):
     """Get current user information."""
     try:
-        # Get user orgs with error handling
-        try:
-            user_orgs = auth_service.get_user_orgs(user.id)
-        except Exception as e:
-            print(f"Error getting user orgs: {e}")  # Debug logging
-            user_orgs = []  # Default to empty if org lookup fails
+        # Get token from cookies
+        access_token = request.cookies.get("access_token")
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required"
+            )
         
-        # Create response with error handling
-        return UserResponse(
-            id=str(user.id),
-            email=user.email,
-            username=user.username,
-            is_active=user.is_active,
-            created_at=user.created_at,
-            orgs=user_orgs
-        )
+        # Verify token
+        try:
+            payload = auth_service.verify_access_token(access_token)
+            user_id = payload.get("sub")
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token"
+                )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+        
+        # Get user and orgs in fresh session
+        with get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found"
+                )
+            
+            # Get user orgs with error handling
+            try:
+                user_orgs = auth_service.get_user_orgs(user.id)
+            except Exception as e:
+                print(f"Error getting user orgs: {e}")  # Debug logging
+                user_orgs = []  # Default to empty if org lookup fails
+            
+            # Create response with fresh data
+            return UserResponse(
+                id=str(user.id),
+                email=user.email,
+                username=user.username,
+                is_active=user.is_active,
+                created_at=user.created_at,
+                orgs=user_orgs
+            )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in /auth/me: {e}")  # Debug logging
         raise HTTPException(
