@@ -247,7 +247,7 @@ async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_o
         
         # Verify access token
         try:
-            payload = auth_service.verify_access_token(access_token)
+            payload = auth_service.verify_token(access_token)
             user_id = payload.get("sub")
             if not user_id:
                 await websocket.close(code=4001, reason="Invalid token")
@@ -273,15 +273,20 @@ async def ws_events(websocket: WebSocket, org_id: str = Query(default='default_o
         # Connect to WebSocket manager with user context
         await ws_manager.connect(websocket, org_id, user_id)
         
+        # Keep connection alive
     try:
         while True:
             # Keep connection alive; client need not send anything
             await websocket.receive_text()
     except WebSocketDisconnect:
+            pass
+        finally:
         await ws_manager.disconnect(websocket, org_id)
             
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, org_id)
     except Exception as e:
-        logger.error(f"WebSocket authentication error: {e}")
+        logger.error(f"WebSocket error: {e}")
         try:
             await websocket.close(code=4000, reason="Authentication failed")
         except:
