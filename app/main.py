@@ -474,16 +474,60 @@ async def debug_tables():
 async def health_check():
     return {"status": "healthy"}
 
-@app.post("/migrate")
-async def run_migration():
-    """Run database migrations."""
+@app.post("/api/debug/migrate")
+async def debug_migrate():
+    """Debug endpoint to manually run migrations and see detailed errors."""
     try:
-        from tools.migrate import run_migrations
-        result = run_migrations()
-        return {"status": "success", "message": "Migrations completed", "result": result}
+        from alembic.config import Config
+        from alembic import command
+        import traceback
+        
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            return {"status": "error", "error": "DATABASE_URL not set"}
+        
+        # Create Alembic config
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+        
+        # Get current revision
+        try:
+            from alembic.runtime.migration import MigrationContext
+            from sqlalchemy import create_engine
+            
+            engine = create_engine(database_url)
+            with engine.connect() as connection:
+                context = MigrationContext.configure(connection)
+                current_rev = context.get_current_revision()
+                
+            # Run the migration
+            command.upgrade(alembic_cfg, "head")
+            
+            # Get new revision
+            with engine.connect() as connection:
+                context = MigrationContext.configure(connection)
+                new_rev = context.get_current_revision()
+            
+            return {
+                "status": "success",
+                "message": "Migration completed",
+                "previous_revision": current_rev,
+                "new_revision": new_rev
+            }
+            
+        except Exception as migration_error:
+            return {
+                "status": "error",
+                "error": str(migration_error),
+                "traceback": traceback.format_exc()
+            }
+            
     except Exception as e:
-        logger.error(f"Migration error: {e}")
-        return {"status": "error", "message": str(e)}
+        return {
+            "status": "error", 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 @app.get("/scrape")
 async def scrape():
