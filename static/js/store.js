@@ -113,6 +113,9 @@
   }
 
   function openWS() {
+    // Debug: Check what cookies are available
+    console.log('🍪 document.cookie contents:', document.cookie);
+    
     // Get access token from cookies
     const cookies = document.cookie.split(';').reduce((acc, cookie) => {
       const [key, value] = cookie.trim().split('=');
@@ -120,10 +123,13 @@
       return acc;
     }, {});
     
+    console.log('🍪 Parsed cookies:', Object.keys(cookies));
+    
     accessToken = cookies.access_token;
     
     if (!accessToken) {
       console.warn('No access token available for WebSocket connection');
+      console.warn('Available cookies:', Object.keys(cookies));
       return;
     }
     
