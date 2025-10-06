@@ -415,18 +415,28 @@ async def get_current_user_info(
 ):
     """Get current user information."""
     try:
-        user_orgs = auth_service.get_user_orgs(user.id)
+        # Get user orgs with error handling
+        try:
+            user_orgs = auth_service.get_user_orgs(user.id)
+        except Exception as e:
+            print(f"Error getting user orgs: {e}")  # Debug logging
+            user_orgs = []  # Default to empty if org lookup fails
+        
+        # Create response with error handling
+        return UserResponse(
+            id=str(user.id),
+            email=user.email,
+            username=user.username,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            orgs=user_orgs
+        )
     except Exception as e:
-        user_orgs = []  # Default to empty if org lookup fails
-    
-    return UserResponse(
-        id=str(user.id),
-        email=user.email,
-        username=user.username,
-        is_active=user.is_active,
-        created_at=user.created_at,
-        orgs=user_orgs
-    )
+        print(f"Error in /auth/me: {e}")  # Debug logging
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get user info: {str(e)}"
+        )
 
 
 @router.get("/sessions", response_model=List[SessionResponse])
