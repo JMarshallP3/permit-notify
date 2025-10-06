@@ -27,7 +27,7 @@ class AuthMiddleware:
         
         try:
             # Verify the JWT token
-            payload = auth_service.verify_token(access_token)
+            payload = auth_service.verify_access_token(access_token)
             user_id = payload.get("sub")
             if not user_id:
                 return None
