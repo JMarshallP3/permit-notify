@@ -276,6 +276,14 @@ class PermitDashboard {
             this.permits = data.permits || [];
             this.lastUpdate = new Date();
             
+            // Debug: Check date data being received
+            console.log('📅 Date data check - first 3 permits:', this.permits.slice(0, 3).map(p => ({ 
+                status_no: p.status_no, 
+                status_date: p.status_date,
+                status_date_type: typeof p.status_date,
+                created_at: p.created_at
+            })));
+            
             // Debug: Log county data to console
             console.log('🏛️ County data check:', this.permits.map(p => ({ 
                 status_no: p.status_no, 
