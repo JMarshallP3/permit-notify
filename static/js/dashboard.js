@@ -3293,6 +3293,7 @@ class PermitDashboard {
     }
 
     async openBasicReservoirTrends(specificReservoir = null) {
+        try {
         // Create the modal
         const modal = document.createElement('div');
         modal.className = 'trends-modal';
