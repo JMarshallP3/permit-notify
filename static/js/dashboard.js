@@ -3280,6 +3280,19 @@ class PermitDashboard {
     
     async openReservoirTrends(specificReservoir = null) {
         try {
+            // Import and use the enhanced reservoir trends modal
+            const { ReservoirTrendsModal } = await import('./reservoir-trends/modal.js');
+            const modal = new ReservoirTrendsModal();
+            await modal.open(specificReservoir);
+        } catch (error) {
+            console.error('Error opening enhanced reservoir trends:', error);
+            
+            // Fallback to basic modal if enhanced version fails
+            this.openBasicReservoirTrends(specificReservoir);
+        }
+    }
+
+    async openBasicReservoirTrends(specificReservoir = null) {
         // Create the modal
         const modal = document.createElement('div');
         modal.className = 'trends-modal';

@@ -1814,6 +1814,50 @@ async def count_permits_by_field_name(
         logger.error(f"Count permits by field error: {e}")
         raise HTTPException(status_code=500, detail="Failed to count permits")
 
+@app.get("/api/user_prefs")
+async def get_user_preferences(
+    key: str = Query(..., description="Preference key to retrieve")
+):
+    """
+    Get user preferences by key.
+    Used for persisting reservoir trends state and other user settings.
+    """
+    try:
+        # For now, return None to indicate no server-side storage
+        # This allows the frontend to fall back to localStorage
+        return None
+        
+    except Exception as e:
+        logger.error(f"Get user preferences error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user preferences")
+
+@app.patch("/api/user_prefs")
+async def update_user_preferences(request: Request):
+    """
+    Update user preferences.
+    Used for persisting reservoir trends state and other user settings.
+    """
+    try:
+        data = await request.json()
+        key = data.get("key")
+        value = data.get("value")
+        
+        if not key:
+            raise HTTPException(status_code=400, detail="Key is required")
+        
+        # For now, just log the preference update
+        # In a full implementation, you would store this in a user_preferences table
+        logger.info(f"User preference update - key: {key}, value: {value}")
+        
+        return {
+            "success": True,
+            "message": "Preference updated (stored in localStorage only)"
+        }
+        
+    except Exception as e:
+        logger.error(f"Update user preferences error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update user preferences")
+
 @app.post("/api/v1/permits/{status_no}/re-enrich")
 async def re_enrich_single_permit(status_no: str, request: Request):
     """
