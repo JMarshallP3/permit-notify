@@ -34,9 +34,8 @@ export class ReservoirTrendsChart {
         this.groupedData = null;
         this.currentViewData = data;
         
-        if (this.chart) {
-            this.chart.destroy();
-        }
+        // Ensure proper cleanup
+        this.destroy();
         
         this.createChart();
         this.setupEventListeners();
@@ -110,13 +109,7 @@ export class ReservoirTrendsChart {
                 },
                 scales: {
                     x: {
-                        type: 'time',
-                        time: {
-                            unit: 'day',
-                            displayFormats: {
-                                day: 'MMM DD'
-                            }
-                        },
+                        type: 'category', // Use category instead of time to avoid date adapter requirement
                         title: {
                             display: true,
                             text: 'Date'
@@ -147,6 +140,8 @@ export class ReservoirTrendsChart {
      * Handle hover events with enhanced behavior
      */
     handleHover(event, elements) {
+        if (!this.chart || !this.chart.data) return;
+        
         if (elements.length > 0) {
             const element = elements[0];
             const datasetIndex = element.datasetIndex;
@@ -173,6 +168,8 @@ export class ReservoirTrendsChart {
      * Toggle series visibility
      */
     toggleSeriesVisibility(datasetIndex) {
+        if (!this.chart || !this.chart.data) return;
+        
         const dataset = this.chart.data.datasets[datasetIndex];
         const isVisible = this.chart.isDatasetVisible(datasetIndex);
         
@@ -194,6 +191,8 @@ export class ReservoirTrendsChart {
      * Show/hide all series
      */
     showAllSeries(show = true) {
+        if (!this.chart || !this.chart.data) return;
+        
         this.chart.data.datasets.forEach((dataset, index) => {
             this.chart.setDatasetVisibility(index, show);
             

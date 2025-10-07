@@ -116,30 +116,18 @@
     // Debug: Check what cookies are available
     console.log('🍪 document.cookie contents:', document.cookie);
     
-    // Get access token from cookies
-    const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-      const [key, value] = cookie.trim().split('=');
-      acc[key] = value;
-      return acc;
-    }, {});
-    
-    console.log('🍪 Parsed cookies:', Object.keys(cookies));
-    
-    accessToken = cookies.access_token;
-    
-    if (!accessToken) {
-      console.warn('No access token available for WebSocket connection');
-      console.warn('Available cookies:', Object.keys(cookies));
-      return;
-    }
+    // For HttpOnly cookies, we can't access them from JavaScript
+    // The WebSocket should use the browser's automatic cookie inclusion
+    // Let's try connecting without the access_token in the URL first
     
     let wsUrl;
     if (location.protocol === "https:") {
-      wsUrl = `wss://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}&access_token=${encodeURIComponent(accessToken)}`;
+      wsUrl = `wss://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}`;
     } else {
-      wsUrl = `ws://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}&access_token=${encodeURIComponent(accessToken)}`;
+      wsUrl = `ws://${location.host}${WS_PATH}?org_id=${encodeURIComponent(currentOrgId)}`;
     }
     
+    console.log('🔌 Connecting to WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
